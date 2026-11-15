@@ -87,6 +87,16 @@ src/
 
 Stack: React 19, TypeScript, Vite e PeerJS, com ícones do Lucide.
 
+## Testes
+
+```bash
+npm run test:e2e
+```
+
+Abre várias pessoas de verdade no Edge ou no Chrome instalado (com câmera e microfone falsos) e testa: entrar pelo convite, chat, reações, malha de voz, câmera, live, queda do host com migração automática, passar a coroa, expulsão e o layout de celular. Usa o servidor público do PeerJS, então precisa de internet. Use `E2E_HEADED=1` para ver as janelas e `E2E_BROWSER=chrome` para trocar o navegador. As capturas de tela ficam em `test-results/`.
+
+Para depurar a migração de host no navegador: `localStorage.setItem('orbita.debug', '1')` e recarregue a página.
+
 ## Publicação
 
 Cada push na branch `main` gera o build e publica no GitHub Pages (`.github/workflows/deploy.yml`).

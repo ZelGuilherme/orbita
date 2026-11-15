@@ -37,17 +37,23 @@ const browser = await chromium.launch({
 
 // ───────────────────────── utilidades ─────────────────────────
 
-async function newUser(name, color, opened, viewport = { width: 1440, height: 900 }) {
+async function newUser(name, color, opened, viewport = { width: 1440, height: 900 }, settings = null) {
   const context = await browser.newContext({ viewport, permissions: ['microphone', 'camera'], hasTouch: viewport.width < 500 });
   opened.push(context);
   await context.addInitScript(
-    ([n, c]) => {
-      localStorage.setItem(
-        'orbita.profile.v1',
-        JSON.stringify({ id: (Math.random().toString(36).slice(2, 12) + 'abcdefgh').slice(0, 16), name: n, color: c }),
-      );
+    ([n, c, extra]) => {
+      if (!sessionStorage.getItem('e2e.init')) {
+        sessionStorage.setItem('e2e.init', '1');
+        localStorage.setItem(
+          'orbita.profile.v1',
+          JSON.stringify({ id: (Math.random().toString(36).slice(2, 12) + 'abcdefgh').slice(0, 16), name: n, color: c }),
+        );
+        if (extra) localStorage.setItem('orbita.settings.v1', JSON.stringify(extra));
+      }
+      window.__displayCalls = 0;
       // getDisplayMedia falso: canvas animado + tom (testa a live sem tela de verdade)
       navigator.mediaDevices.getDisplayMedia = async () => {
+        window.__displayCalls++;
         const canvas = document.createElement('canvas');
         canvas.width = 1280;
         canvas.height = 720;
@@ -71,7 +77,7 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
         return stream;
       };
     },
-    [name, color],
+    [name, color, settings],
   );
   const page = await context.newPage();
   page.on('console', (msg) => {
@@ -103,6 +109,11 @@ async function joinRoom(user, code) {
   await waitFor(user.page, () => window.__orbita?.getApp().phase === 'room');
 }
 
+async function joinCall(user) {
+  await user.page.getByRole('button', { name: /Entrar na chamada/ }).click();
+  await waitFor(user.page, () => window.__orbita.getApp().inCall);
+}
+
 // ───────────────────────── cenários ─────────────────────────
 
 /** 3 pessoas: chat, reação, malha de voz, câmera, live, queda do host e expulsão. */
@@ -126,10 +137,7 @@ async function chamadaCompleta(opened) {
   await waitFor(b.page, () => !!document.querySelector('.reaction'));
   log('  chat e reação ok');
 
-  for (const u of [a, b, c]) {
-    await u.page.locator('.vchan .chan', { hasText: 'Sala de voz' }).click();
-    await waitFor(u.page, () => !!window.__orbita.getApp().voiceChannelId);
-  }
+  for (const u of [a, b, c]) await joinCall(u);
   for (const u of [a, b, c]) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);
   }
@@ -142,13 +150,66 @@ async function chamadaCompleta(opened) {
   log('  câmera ok');
 
   await b.page.getByRole('button', { name: 'Iniciar live' }).last().click();
-  await b.page.getByRole('button', { name: /Escolher tela/ }).click();
+  await b.page.getByRole('button', { name: /Escolher o que transmitir/ }).click();
   await waitFor(a.page, () => window.__orbita.getApp().room?.members.some((m) => m.live), null, 20_000);
   await a.page.getByRole('button', { name: /Assistir live/ }).first().click();
   await waitFor(a.page, () => [...document.querySelectorAll('.tile--live video')].some((v) => v.videoWidth > 0));
   await waitFor(b.page, () => window.__orbita.getApp().live?.viewers === 1, null, 15_000);
   log('  live ok (1 espectador)');
+
+  // volume da live, separado do volume da voz
+  await a.page.locator('.tile--live').first().hover();
+  await a.page.getByRole('button', { name: 'Silenciar a live' }).click();
+  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveMutes).some(Boolean));
+  await a.page.getByRole('button', { name: 'Ativar o som da live' }).click();
+  await a.page.locator('.live-volume input[type=range]').fill('35');
+  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(35));
+  const liveAudio = await a.page.evaluate(() => [...document.querySelectorAll('audio')].map((el) => Math.round(el.volume * 100)));
+  if (!liveAudio.includes(35)) throw new Error(`volume da live não chegou no áudio: ${liveAudio}`);
+  log('  volume da live ok:', liveAudio.join(', '));
+
+  // efeitos e laser: aparecem para quem transmite e para quem assiste
+  await a.page.locator('.fx-bar__emoji').first().click();
+  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-reaction'), null, 10_000);
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Efeitos na tela' }).click();
+  await a.page.getByRole('menuitem', { name: /Disco voador/ }).click();
+  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-ufo'), null, 10_000);
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Chamar atenção' }).click();
+  await waitFor(b.page, () => [...document.querySelectorAll('.fx-credit')].some((el) => el.textContent.includes('chamou atenção')), null, 10_000);
+  await a.page.locator('.fx-bar').getByRole('button', { name: /Laser/ }).click();
+  const stage = await a.page.locator('.tile--live .fx-stage').boundingBox();
+  await a.page.mouse.move(stage.x + stage.width * 0.25, stage.y + stage.height * 0.5);
+  await a.page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.4, { steps: 5 });
+  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-laser.is-on'), null, 10_000);
+  const laserAt = await b.page.evaluate(() => {
+    const el = document.querySelector('.tile--live .fx-laser.is-on');
+    return { left: parseFloat(el.style.left), top: parseFloat(el.style.top) };
+  });
+  if (Math.abs(laserAt.left - 30) > 4 || Math.abs(laserAt.top - 40) > 4) throw new Error(`laser fora do lugar: ${JSON.stringify(laserAt)}`);
+  log('  efeitos ok (reação, disco voador, chamar atenção) e laser em', laserAt);
+  await shot(b.page, 'live-efeitos-streamer');
+
+  // opções com a live no ar: qualidade e trocar a fonte, sem derrubar o espectador
+  await b.page.getByRole('button', { name: 'Opções da live' }).last().click();
+  await b.page.getByRole('button', { name: /1080p 60fps/ }).click();
+  await waitFor(a.page, () => window.__orbita.getApp().room?.members.find((m) => m.live)?.live.quality === '1080p60', null, 10_000);
+  await b.page.getByRole('button', { name: /Trocar o que está sendo transmitido/ }).click();
+  await waitFor(b.page, () => window.__displayCalls === 2, null, 10_000);
+  await b.page.getByRole('button', { name: 'Pronto' }).click();
+  await a.page.waitForTimeout(1_500);
+  const stillWatching = await a.page.evaluate(() => [...document.querySelectorAll('.tile--live video')].some((v) => v.videoWidth > 0));
+  if (!stillWatching) throw new Error('o espectador perdeu a live ao trocar a fonte');
+  log('  live: qualidade e fonte trocadas no ar, espectador continuou assistindo');
+  await a.page.mouse.move(5, 5);
   await shot(a.page, 'chamada-live');
+
+  // atalho padrão (Ctrl+Shift+M) silencia e volta
+  const micBefore = await c.page.evaluate(() => window.__orbita.getApp().micOn);
+  await c.page.keyboard.press('Control+Shift+KeyM');
+  await waitFor(c.page, (before) => window.__orbita.getApp().micOn !== before, micBefore);
+  await c.page.keyboard.press('Control+Shift+KeyM');
+  await waitFor(c.page, (before) => window.__orbita.getApp().micOn === before, micBefore);
+  log('  atalho do microfone ok');
 
   await a.context.close();
   await waitFor(b.page, () => window.__orbita.getApp().isHost === true, null, 60_000);
@@ -164,35 +225,53 @@ async function chamadaCompleta(opened) {
   await waitFor(c.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 1, null, 30_000);
   log('  host caiu → Bruno assumiu, Carla reconectou e a voz continuou:', await membersOf(c.page));
 
-  await c.page.locator('.chan', { hasText: 'geral' }).click();
   await c.page.locator('.composer textarea').fill('Ainda aqui depois da troca de host!');
   await c.page.keyboard.press('Enter');
-  await b.page.locator('.chan', { hasText: 'geral' }).click();
   await waitFor(b.page, () => document.querySelector('.messages')?.textContent?.includes('depois da troca de host'));
   log('  chat e histórico ok depois da migração');
 
-  await b.page.locator('.members .member', { hasText: 'Carla' }).click();
+  await b.page.locator('.people .person', { hasText: 'Carla' }).click();
   await b.page.getByRole('button', { name: /Remover da órbita/ }).click();
   await b.page.getByRole('button', { name: /^Remover$/ }).click();
   await waitFor(c.page, () => window.__orbita.getApp().phase === 'ended', null, 15_000);
   log('  expulsão ok');
 }
 
-/** Passar a coroa e continuar; host sair escolhendo o sucessor; encerrar; layout de celular. */
+/**
+ * Filtros de voz (RNNoise + portão), pressionar para falar, passar a coroa e continuar;
+ * host sair escolhendo o sucessor; encerrar; layout de celular.
+ */
 async function passarCoroa(opened) {
-  const a = await newUser('Ana', '#8b5cf6', opened, { width: 1280, height: 800 });
+  const filters = { noiseFilter: 'rnnoise', noiseGate: true, highpass: true, compressor: true, voiceMode: 'ptt', keybinds: { pushToTalk: 'KeyV' } };
+  const a = await newUser('Ana', '#8b5cf6', opened, { width: 1280, height: 800 }, filters);
   const b = await newUser('Bruno', '#22d3ee', opened, { width: 390, height: 844 });
   const code = await createRoom(a);
   await joinRoom(b, code);
-  await a.page.locator('.vchan .chan', { hasText: 'Sala de voz' }).click();
-  await b.page.getByRole('button', { name: 'Abrir canais' }).click();
-  await b.page.locator('.vchan .chan', { hasText: 'Sala de voz' }).click();
+  await joinCall(a);
+  await joinCall(b);
   for (const u of [a, b]) await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 1, null, 45_000);
+  const filterFailed = await a.page.evaluate(() => document.body.textContent.includes('Não consegui carregar'));
+  if (filterFailed) throw new Error('a supressão de ruído RNNoise não carregou');
+  // pressionar para falar: só transmite com a tecla segurada
+  await a.page.evaluate(() => document.activeElement?.blur());
+  await a.page.keyboard.down('KeyV');
+  await waitFor(a.page, () => window.__orbita.getApp().pttDown === true);
+  await a.page.keyboard.up('KeyV');
+  await waitFor(a.page, () => window.__orbita.getApp().pttDown === false);
+  log('  filtros de voz (RNNoise, portão, graves, compressor) e pressionar para falar ok');
   await b.page.waitForTimeout(1_000);
   await shot(b.page, 'celular-orbita');
   log('  Ana + Bruno (celular) na voz');
 
-  await a.page.locator('.members .member', { hasText: 'Bruno' }).click();
+  await b.page.getByRole('button', { name: 'Mostrar o chat' }).click();
+  await b.page.locator('.composer textarea').fill('Oi do celular!');
+  await b.page.keyboard.press('Enter');
+  await waitFor(a.page, () => document.querySelector('.messages')?.textContent?.includes('Oi do celular'));
+  await shot(b.page, 'celular-chat');
+  await b.page.locator('.chat-panel').getByRole('button', { name: 'Esconder o chat' }).click();
+  log('  chat no celular ok');
+
+  await a.page.locator('.people .person', { hasText: 'Bruno' }).click();
   await a.page.getByRole('button', { name: /Tornar host/ }).click();
   await a.page.getByRole('button', { name: /Passar a coroa/ }).click();
   await waitFor(b.page, () => window.__orbita.getApp().isHost === true, null, 45_000);
@@ -203,9 +282,9 @@ async function passarCoroa(opened) {
   await waitFor(a.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 1, null, 20_000);
   log('  coroa passada para o Bruno; Ana continuou como membro, voz intacta');
 
-  await b.page.getByRole('button', { name: 'Abrir canais' }).click();
-  await b.page.locator('.sidebar__header').click();
-  await b.page.getByRole('button', { name: /Sair ou encerrar/ }).click();
+  await b.page.getByRole('button', { name: 'Pessoas na órbita' }).click();
+  await b.page.locator('.people__room').click();
+  await b.page.getByRole('menuitem', { name: /Sair ou encerrar/ }).click();
   await b.page.getByRole('button', { name: /Passar a coroa e sair/ }).click();
   await waitFor(b.page, () => window.__orbita.getApp().phase === 'landing', null, 20_000);
   await waitFor(a.page, () => {
@@ -214,8 +293,8 @@ async function passarCoroa(opened) {
   }, null, 45_000);
   log('  Bruno saiu passando a coroa; Ana é host de novo');
 
-  await a.page.locator('.sidebar__header').click();
-  await a.page.getByRole('button', { name: /Sair ou encerrar/ }).click();
+  await a.page.locator('.people__room').click();
+  await a.page.getByRole('menuitem', { name: /Sair ou encerrar/ }).click();
   await a.page.getByRole('button', { name: /Encerrar e sair/ }).click();
   await waitFor(a.page, () => window.__orbita.getApp().phase === 'landing', null, 15_000);
   log('  sala encerrada');

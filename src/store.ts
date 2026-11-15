@@ -1,18 +1,17 @@
 import { create } from 'zustand';
-import type { Channel, ChannelType, ChatMessage, LiveInfo, RoomState } from './lib/protocol';
+import type { LiveSurface } from './lib/media';
+import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
-import { loadProfile, loadSettings, loadVolumes, type Profile, type Settings } from './lib/storage';
+import { loadLiveVolumes, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type Profile, type Settings } from './lib/storage';
 
-export type View = { kind: 'text' | 'voice'; channelId: string };
-export type SettingsTab = 'perfil' | 'audio' | 'live' | 'rede' | 'sobre';
+export type SettingsTab = 'perfil' | 'voz' | 'filtros' | 'live' | 'atalhos' | 'rede' | 'sobre';
 
 export type Modal =
   | { kind: 'settings'; tab?: SettingsTab }
   | { kind: 'invite' }
-  | { kind: 'golive' }
+  | { kind: 'live' }
   | { kind: 'leave' }
   | { kind: 'room' }
-  | { kind: 'channel'; type: ChannelType; channel?: Channel }
   | { kind: 'image'; src: string; name: string }
   | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; action: () => void };
 
@@ -22,7 +21,8 @@ export interface Toast {
   tone: 'info' | 'success' | 'error';
 }
 
-export type Phase = 'landing' | 'connecting' | 'room' | 'ended';
+/** handoff: a aba entregou o convite para o app instalado. */
+export type Phase = 'landing' | 'connecting' | 'room' | 'ended' | 'handoff';
 
 export interface AppState {
   profile: Profile;
@@ -31,10 +31,14 @@ export interface AppState {
   connectingText: string;
   landingError: string | null;
   inviteCode: string | null;
+  handoff: { code: string; status: 'opening' | 'opened' | 'failed' } | null;
   ended: { reason: EndReason; roomName: string; code: string } | null;
   toasts: Toast[];
   modal: Modal | null;
+  /** Volume da voz de cada pessoa (por perfil). */
   volumes: Record<string, number>;
+  /** Volume da live de cada pessoa (por perfil), separado da voz. */
+  liveVolumes: Record<string, number>;
 
   // sala
   code: string | null;
@@ -43,34 +47,44 @@ export interface AppState {
   isHost: boolean;
   net: 'connected' | 'reconnecting';
   netDetail: string;
-  messages: Record<string, ChatMessage[]>;
-  typing: Record<string, Record<string, number>>;
+  /** Mensagens do chat da sala. */
+  messages: ChatMessage[];
+  /** Quem está digitando: id → até quando. */
+  typing: Record<string, number>;
   speaking: Record<string, boolean>;
 
   // mídia local
-  voiceChannelId: string | null;
+  inCall: boolean;
   joiningVoice: boolean;
   micOn: boolean;
   deafened: boolean;
+  /** Pressionar para falar: a tecla está pressionada. */
+  pttDown: boolean;
   cameraOn: boolean;
   live: LiveInfo | null;
+  liveSurface: LiveSurface | null;
   localCamera: MediaStream | null;
   localScreen: MediaStream | null;
   voiceStreams: Record<string, MediaStream>;
   liveStreams: Record<string, MediaStream>;
   watching: Record<string, true>;
+  /** Lives silenciadas só para mim (sem mexer no volume salvo). */
+  liveMutes: Record<string, boolean>;
 
   // interface
-  view: View | null;
-  unread: Record<string, number>;
-  mentions: Record<string, number>;
-  showMembers: boolean;
-  navOpen: boolean;
+  chatOpen: boolean;
+  peopleOpen: boolean;
+  unread: number;
+  mentions: number;
   focus: string | null;
   callLayout: 'auto' | 'grid' | 'orbit';
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
+  /** Laser ligado: o mouse em cima da live aponta para todo mundo. */
+  laser: boolean;
+  /** Janela flutuante (sempre por cima) com a prévia da live e os efeitos. */
+  floating: boolean;
 }
 
 const roomDefaults = () => ({
@@ -80,29 +94,33 @@ const roomDefaults = () => ({
   isHost: false,
   net: 'connected' as const,
   netDetail: '',
-  messages: {},
+  messages: [],
   typing: {},
   speaking: {},
-  voiceChannelId: null,
+  inCall: false,
   joiningVoice: false,
   micOn: true,
   deafened: false,
+  pttDown: false,
   cameraOn: false,
   live: null,
+  liveSurface: null,
   localCamera: null,
   localScreen: null,
   voiceStreams: {},
   liveStreams: {},
   watching: {},
-  view: null,
-  unread: {},
-  mentions: {},
-  navOpen: false,
+  liveMutes: {},
+  peopleOpen: false,
+  unread: 0,
+  mentions: 0,
   focus: null,
   callLayout: 'auto' as const,
   localMutes: {},
   audioBlocked: false,
   memberCard: null,
+  laser: false,
+  floating: false,
   modal: null,
 });
 
@@ -113,16 +131,22 @@ export const useApp = create<AppState>()(() => ({
   connectingText: '',
   landingError: null,
   inviteCode: null,
+  handoff: null,
   ended: null,
   toasts: [],
   volumes: loadVolumes(),
-  showMembers: typeof window === 'undefined' || window.innerWidth > 1100,
+  liveVolumes: loadLiveVolumes(),
+  chatOpen: loadUiPrefs().chatOpen,
   ...roomDefaults(),
 }));
 
 export const getApp = useApp.getState;
 export const setApp = useApp.setState;
 export const resetRoomState = () => setApp(roomDefaults());
+
+/** O chat de texto e a chamada da sala (cada sala tem um de cada). */
+export const textChannelOf = (room: RoomState | null) => room?.channels.find((c) => c.type === 'text') ?? null;
+export const voiceChannelOf = (room: RoomState | null) => room?.channels.find((c) => c.type === 'voice') ?? null;
 
 let toastId = 0;
 export function toast(text: string, tone: Toast['tone'] = 'info', ms = 3_800) {

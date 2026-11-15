@@ -3,8 +3,10 @@
  *
  * Topologia: o host roda um "hub" (um peer com ID previsível = prefixo + código da sala).
  * Todo mundo abre uma conexão de dados com o hub, que é a autoridade da sala: guarda a
- * lista de membros, canais, histórico do chat e repassa mensagens. Áudio, vídeo e lives
+ * lista de membros, o histórico do chat e repassa mensagens. Áudio, vídeo e lives
  * NÃO passam pelo hub: vão direto de pessoa para pessoa (malha WebRTC).
+ *
+ * Cada sala tem exatamente um chat de texto e uma chamada de voz (os dois "canais" fixos).
  */
 
 export type ChannelType = 'text' | 'voice';
@@ -22,7 +24,23 @@ export interface LiveInfo {
   quality: LiveQuality;
   audio: boolean;
   viewers: number;
+  /** Quem transmite aceita efeitos e laser dos espectadores. */
+  effects: boolean;
 }
+
+/** Animações grandes que os espectadores mandam para a live (no espírito dos "winks" do MSN). */
+export type FxWink = 'ufo' | 'rocket' | 'confetti' | 'boom' | 'hearts' | 'snow' | 'kiss' | 'meteor';
+
+/**
+ * Efeitos ao vivo: aparecem por cima da live para todo mundo que assiste e para quem
+ * transmite. O laser usa coordenadas de 0 a 1 dentro da imagem da live.
+ */
+export type LiveFx =
+  | { kind: 'reaction'; emoji: string }
+  | { kind: 'nudge' }
+  | { kind: 'wink'; wink: FxWink }
+  | { kind: 'laser'; x: number; y: number }
+  | { kind: 'laser-off' };
 
 /** Estado que cada participante publica sobre si mesmo. */
 export interface Presence {
@@ -95,9 +113,6 @@ export type AdminAction =
   | { kind: 'transfer'; memberId: string; /** o host atual está saindo da sala */ leave?: boolean }
   | { kind: 'lock'; locked: boolean }
   | { kind: 'rename'; name: string }
-  | { kind: 'channel:create'; name: string; type: ChannelType }
-  | { kind: 'channel:rename'; id: string; name: string }
-  | { kind: 'channel:delete'; id: string }
   | { kind: 'end' };
 
 /** Participante -> host */
@@ -121,6 +136,7 @@ export type ClientMsg =
   | { t: 'presence'; presence: Partial<Presence> }
   | { t: 'profile'; name: string; color: string }
   | { t: 'live:watch'; streamerId: string; on: boolean }
+  | { t: 'fx'; streamerId: string; fx: LiveFx }
   | { t: 'admin'; action: AdminAction };
 
 /** Host -> participante */
@@ -134,6 +150,7 @@ export type HubMsg =
   | { t: 'typing'; memberId: string; channelId: string }
   | { t: 'speaking'; memberId: string; on: boolean }
   | { t: 'live:viewer'; viewerId: string; viewerPeerId: string; on: boolean }
+  | { t: 'fx'; from: string; streamerId: string; fx: LiveFx }
   | { t: 'ping' }
   | { t: 'kicked'; ban: boolean }
   | { t: 'ended' }

@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   LoaderCircle,
   Maximize,
+  MessageSquare,
   Mic,
   MicOff,
   Orbit,
@@ -15,40 +16,53 @@ import {
   PictureInPicture2,
   Radio,
   ScreenShare,
-  ScreenShareOff,
+  Settings2,
+  Square,
+  SquareArrowOutUpRight,
+  UserPlus,
+  Users,
   Video,
   VideoOff,
+  Volume1,
   Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
-  joinVoice,
-  leaveVoice,
+  joinCall,
+  leaveCall,
   openLive,
+  setLiveVolume,
   stopLive,
   toggleCamera,
+  toggleChat,
   toggleDeafen,
+  toggleLiveMute,
   toggleMic,
   unwatchLive,
   watchLive,
 } from '../controller';
+import { baseId } from '../lib/hub';
+import { comboLabel } from '../lib/keybinds';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor, roomInitials } from '../lib/util';
-import { setApp, useApp } from '../store';
-import { ChannelHeader } from './ChatView';
-import { openMemberCard } from './MemberList';
+import { setApp, useApp, voiceChannelOf } from '../store';
+import { canFloat, openFloating } from './Floating';
+import { FxBar, FxLayer } from './LiveFx';
+import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
-import { cx, IconButton, useReducedMotion } from './ui';
+import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
-export function CallView({ channelId }: { channelId: string }) {
+const EMPTY: Member[] = [];
+
+export function CallView() {
   const room = useApp((s) => s.room);
-  const voiceChannelId = useApp((s) => s.voiceChannelId);
+  const inCall = useApp((s) => s.inCall);
   const joining = useApp((s) => s.joiningVoice);
   const layout = useApp((s) => s.callLayout);
   if (!room) return null;
-  const channel = room.channels.find((c) => c.id === channelId);
-  const members = room.members.filter((m) => m.voiceChannelId === channelId);
-  const joined = voiceChannelId === channelId;
+  const callId = voiceChannelOf(room)?.id;
+  const members = room.members.filter((m) => !!callId && m.voiceChannelId === callId);
   // automático: órbita enquanto ninguém tem vídeo; grade quando aparece câmera ou live
   const effective = layout === 'auto' ? (members.some((m) => m.cameraOn || m.live) ? 'grid' : 'orbit') : layout;
 
@@ -59,33 +73,57 @@ export function CallView({ channelId }: { channelId: string }) {
 
   return (
     <section className="call">
-      <ChannelHeader icon={<Volume2 size={22} />} title={channel?.name ?? 'Voz'}>
-        <div className="seg" role="tablist" aria-label="Visualização">
-          <button type="button" className={cx(effective === 'orbit' && 'is-on')} onClick={() => setApp({ callLayout: 'orbit' })}>
-            <Orbit size={15} /> <span>Órbita</span>
-          </button>
-          <button type="button" className={cx(effective === 'grid' && 'is-on')} onClick={() => setApp({ callLayout: 'grid' })}>
-            <LayoutGrid size={15} /> <span>Grade</span>
-          </button>
-        </div>
-      </ChannelHeader>
+      <StageHeader room={room} count={members.length} layout={effective} />
       <div className="call__stage">
-        {effective === 'orbit' ? (
-          <OrbitStage members={members} room={room} channelName={channel?.name ?? ''} onPick={pick} />
-        ) : (
-          <CallGrid members={members} />
-        )}
+        {effective === 'orbit' ? <OrbitStage members={members} room={room} onPick={pick} /> : <CallGrid members={members} />}
       </div>
-      {joined ? (
+      {inCall ? (
         <CallControls />
       ) : (
         <div className="call__join">
-          <button type="button" className="btn btn--primary btn--lg" disabled={joining} onClick={() => void joinVoice(channelId)}>
+          <button type="button" className="btn btn--primary btn--lg" disabled={joining} onClick={() => void joinCall()}>
             {joining ? <LoaderCircle size={18} className="spin" /> : <Phone size={18} />} Entrar na chamada
           </button>
+          <span className="call__join-hint">Dá para conversar no chat e assistir lives sem entrar na chamada.</span>
         </div>
       )}
     </section>
+  );
+}
+
+function StageHeader({ room, count, layout }: { room: RoomState; count: number; layout: 'grid' | 'orbit' }) {
+  const chatOpen = useApp((s) => s.chatOpen);
+  const unread = useApp((s) => s.unread);
+  const mentions = useApp((s) => s.mentions);
+  return (
+    <header className="stage-header">
+      <button type="button" className="stage-header__people" aria-label="Pessoas na órbita" onClick={() => setApp({ peopleOpen: true })}>
+        <Users size={20} />
+      </button>
+      <div className="stage-header__title">
+        <h1>{room.name}</h1>
+        <span className="stage-header__sub">
+          <Volume2 size={13} /> {count ? `${count} na chamada` : 'ninguém na chamada'}
+        </span>
+      </div>
+      <div className="stage-header__tools">
+        <div className="seg" role="tablist" aria-label="Visualização">
+          <button type="button" role="tab" aria-selected={layout === 'orbit'} className={cx(layout === 'orbit' && 'is-on')} onClick={() => setApp({ callLayout: 'orbit' })}>
+            <Orbit size={15} /> <span>Órbita</span>
+          </button>
+          <button type="button" role="tab" aria-selected={layout === 'grid'} className={cx(layout === 'grid' && 'is-on')} onClick={() => setApp({ callLayout: 'grid' })}>
+            <LayoutGrid size={15} /> <span>Grade</span>
+          </button>
+        </div>
+        <IconButton label="Convidar" tipPos="bottom" onClick={() => setApp({ modal: { kind: 'invite' } })}>
+          <UserPlus size={20} />
+        </IconButton>
+        <IconButton label={chatOpen ? 'Esconder o chat' : 'Mostrar o chat'} tipPos="bottom" active={chatOpen} onClick={toggleChat}>
+          <MessageSquare size={20} />
+          {!chatOpen && unread > 0 && <span className={cx('count-badge', mentions > 0 && 'is-mention')}>{mentions || (unread > 99 ? '99+' : unread)}</span>}
+        </IconButton>
+      </div>
+    </header>
   );
 }
 
@@ -126,17 +164,7 @@ function place(g: ReturnType<typeof geometry>, i: number, n: number, t: number) 
 const transformOf = (p: ReturnType<typeof place>) =>
   `translate(-50%, -50%) translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) scale(${p.scale.toFixed(3)})`;
 
-function OrbitStage({
-  members,
-  room,
-  channelName,
-  onPick,
-}: {
-  members: Member[];
-  room: RoomState;
-  channelName: string;
-  onPick: (member: Member, anchor: Element) => void;
-}) {
+function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void }) {
   const speaking = useApp((s) => s.speaking);
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -215,8 +243,8 @@ function OrbitStage({
         ) : (
           <div className="orbit__center-btn">
             <Planet name={room.name} color={hashColor(room.code)} size={g.center} text={roomInitials(room.name)} />
-            <span className="orbit__center-name">{channelName}</span>
-            <span className="orbit__center-sub is-muted">{members.length ? 'o host não está neste canal' : 'ninguém em órbita ainda'}</span>
+            <span className="orbit__center-name">{room.name}</span>
+            <span className="orbit__center-sub is-muted">{members.length ? 'o host não está na chamada' : 'ninguém em órbita ainda'}</span>
           </div>
         )}
       </div>
@@ -232,6 +260,7 @@ function OrbitStage({
           style={{ transform: transformOf(place(g, i, n, 0)) }}
           role="button"
           tabIndex={0}
+          aria-label={m.live ? `${m.name}: assistir live` : m.name}
           onClick={(e) => onPick(m, e.currentTarget)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') onPick(m, e.currentTarget);
@@ -288,7 +317,7 @@ function CallGrid({ members }: { members: Member[] }) {
   if (!tiles.length) {
     return (
       <div className="grid grid--empty" ref={ref}>
-        <p className="muted">Ninguém neste canal ainda.</p>
+        <p className="muted">Ninguém na chamada ainda.</p>
       </div>
     );
   }
@@ -321,21 +350,11 @@ function CallGrid({ members }: { members: Member[] }) {
   );
 }
 
-function VideoEl({ stream, mirror, contain }: { stream: MediaStream; mirror?: boolean; contain?: boolean }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const video = ref.current;
-    if (!video) return;
-    if (video.srcObject !== stream) video.srcObject = stream;
-    void video.play().catch(() => {});
-  }, [stream]);
-  return <video ref={ref} className={cx('video', mirror && 'is-mirror', contain && 'is-contain')} autoPlay playsInline muted />;
-}
-
 function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const m = spec.member;
   const meId = useApp((s) => s.meId);
   const hostId = useApp((s) => s.room?.hostId);
+  const members = useApp((s) => s.room?.members ?? EMPTY);
   const speaking = useApp((s) => !!s.speaking[m.id]);
   const voiceStream = useApp((s) => s.voiceStreams[m.id]);
   const liveStream = useApp((s) => s.liveStreams[m.id]);
@@ -343,7 +362,10 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const localScreen = useApp((s) => s.localScreen);
   const watching = useApp((s) => !!s.watching[m.id]);
   const focus = useApp((s) => s.focus);
+  const laser = useApp((s) => s.laser);
+  const floating = useApp((s) => s.floating);
   const ref = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const isMe = m.id === meId;
   const muted = m.serverMuted || !m.micOn || m.deafened;
 
@@ -351,11 +373,16 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   if (spec.kind === 'cam') stream = m.cameraOn ? (isMe ? localCamera : voiceStream) : null;
   else stream = isMe ? localScreen : watching ? liveStream : null;
   const showVideo = !!stream && stream.getVideoTracks().length > 0;
+  const live = spec.kind === 'live' ? m.live : null;
+  const effects = !!live && (live.effects || isMe);
 
   const toggleFocus = () => setApp({ focus: focus === spec.id ? null : spec.id });
-  const fullscreen = () => void ref.current?.requestFullscreen?.().catch(() => {});
+  const fullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void ref.current?.requestFullscreen?.().catch(() => {});
+  };
   const pip = () => {
-    const video = ref.current?.querySelector('video');
+    const video = videoRef.current;
     if (video && document.pictureInPictureEnabled) void video.requestPictureInPicture().catch(() => {});
   };
 
@@ -367,7 +394,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
       onDoubleClick={fullscreen}
     >
       {showVideo && stream ? (
-        <VideoEl stream={stream} mirror={spec.kind === 'cam' && isMe} contain={spec.kind === 'live'} />
+        <VideoEl stream={stream} mirror={spec.kind === 'cam' && isMe} contain={spec.kind === 'live'} videoRef={spec.kind === 'live' ? videoRef : undefined} />
       ) : spec.kind === 'cam' ? (
         <div className="tile__planet">
           <Planet name={m.name} color={m.color} size={big ? 128 : 76} speaking={speaking} host={m.id === hostId} />
@@ -395,6 +422,8 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         </div>
       )}
 
+      {live && showVideo && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} interactive={laser && (!!big || focus === spec.id)} />}
+
       <div className="tile__label">
         {m.id === hostId && <Crown size={13} className="gold" />}
         <span className="tile__name">
@@ -405,12 +434,21 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         {spec.kind === 'cam' && muted && <MicOff size={14} />}
       </div>
 
-      {spec.kind === 'live' && (
-        <div className="tile__tools" onClick={(e) => e.stopPropagation()}>
-          {m.live && (
-            <span className="tile__viewers" title="Espectadores">
-              <Eye size={13} /> {m.live.viewers}
-            </span>
+      {live && (
+        <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <span className="tile__viewers" title="Espectadores">
+            <Eye size={13} /> {live.viewers}
+          </span>
+          {!isMe && watching && <LiveVolume member={m} />}
+          {isMe && (
+            <IconButton label="Opções da live" tipPos="bottom" onClick={() => setApp({ modal: { kind: 'live' } })}>
+              <Settings2 size={16} />
+            </IconButton>
+          )}
+          {isMe && canFloat() && (
+            <IconButton label={floating ? 'Janela flutuante aberta' : 'Janela flutuante (sempre por cima)'} tipPos="bottom" active={floating} onClick={() => void openFloating()}>
+              <SquareArrowOutUpRight size={16} />
+            </IconButton>
           )}
           {showVideo && !isMe && (
             <IconButton label="Picture-in-picture" tipPos="bottom" onClick={pip}>
@@ -420,13 +458,54 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
           <IconButton label="Tela cheia" tipPos="bottom" onClick={fullscreen}>
             <Maximize size={16} />
           </IconButton>
-          {!isMe && watching && (
-            <IconButton label="Parar de assistir" tipPos="bottom" onClick={() => unwatchLive(m.id)}>
-              <X size={16} />
+          {isMe ? (
+            <IconButton label="Encerrar live" tipPos="bottom" className="is-danger" onClick={stopLive}>
+              <Square size={15} />
             </IconButton>
+          ) : (
+            watching && (
+              <IconButton label="Parar de assistir" tipPos="bottom" onClick={() => unwatchLive(m.id)}>
+                <X size={16} />
+              </IconButton>
+            )
           )}
         </div>
       )}
+
+      {live && showVideo && effects && <FxBar streamerId={m.id} own={isMe} />}
+    </div>
+  );
+}
+
+/** Volume da live (separado do volume da voz da pessoa). */
+function LiveVolume({ member }: { member: Member }) {
+  const volume = useApp((s) => s.liveVolumes[baseId(member.id)] ?? 100);
+  const muted = useApp((s) => !!s.liveMutes[member.id]);
+  const hasAudio = !!member.live?.audio;
+  const value = muted ? 0 : volume;
+  if (!hasAudio) {
+    return (
+      <span className="live-volume is-disabled" data-tip="Esta live está sem som" data-tip-pos="bottom">
+        <VolumeX size={16} />
+      </span>
+    );
+  }
+  return (
+    <div className="live-volume">
+      <button type="button" className="icon-btn" aria-label={value === 0 ? 'Ativar o som da live' : 'Silenciar a live'} onClick={() => toggleLiveMute(member.id)}>
+        {value === 0 ? <VolumeX size={16} /> : value < 50 ? <Volume1 size={16} /> : <Volume2 size={16} />}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        aria-label="Volume da live"
+        style={{ '--fill': `${value}%` } as CSSProperties}
+        onChange={(e) => setLiveVolume(member.id, Number(e.target.value))}
+      />
+      <span className="live-volume__value">{value}%</span>
     </div>
   );
 }
@@ -438,19 +517,32 @@ function CallControls() {
   const deafened = useApp((s) => s.deafened);
   const cameraOn = useApp((s) => s.cameraOn);
   const live = useApp((s) => s.live);
+  const ptt = useApp((s) => s.settings.voiceMode === 'ptt');
+  const pttKey = useApp((s) => s.settings.keybinds.pushToTalk);
+  const pttDown = useApp((s) => s.pttDown);
   const serverMuted = useApp((s) => !!s.room?.members.find((m) => m.id === s.meId)?.serverMuted);
   const muted = !micOn || deafened || serverMuted;
   const canShare = typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+  const micTip = serverMuted
+    ? 'Silenciado pelo host'
+    : muted
+      ? 'Ativar microfone'
+      : ptt
+        ? pttKey
+          ? `Segure ${comboLabel(pttKey)} para falar`
+          : 'Escolha a tecla de falar em Configurações › Atalhos'
+        : 'Silenciar';
   return (
     <div className="call-controls">
       <button
         type="button"
-        className={cx('ctrl', muted && 'is-off')}
-        data-tip={serverMuted ? 'Silenciado pelo host' : muted ? 'Ativar microfone' : 'Silenciar'}
+        className={cx('ctrl', muted && 'is-off', ptt && !muted && pttDown && 'is-talking')}
+        data-tip={micTip}
         aria-label={muted ? 'Ativar microfone' : 'Silenciar'}
         onClick={toggleMic}
       >
         {muted ? <MicOff /> : <Mic />}
+        {ptt && !muted && <span className="ctrl__tag">{pttDown ? 'falando' : 'PTT'}</span>}
       </button>
       <button
         type="button"
@@ -473,14 +565,15 @@ function CallControls() {
       <button
         type="button"
         className={cx('ctrl', live && 'is-live')}
-        data-tip={!canShare ? 'Seu navegador não compartilha tela' : live ? 'Encerrar live' : 'Iniciar live'}
-        aria-label={live ? 'Encerrar live' : 'Iniciar live'}
+        data-tip={!canShare ? 'Seu navegador não compartilha a tela' : live ? 'Opções da live' : 'Iniciar live'}
+        aria-label={live ? 'Opções da live' : 'Iniciar live'}
         disabled={!canShare}
-        onClick={() => (live ? stopLive() : setApp({ modal: { kind: 'golive' } }))}
+        onClick={() => setApp({ modal: { kind: 'live' } })}
       >
-        {live ? <ScreenShareOff /> : <ScreenShare />}
+        <ScreenShare />
+        {live && <span className="ctrl__tag ctrl__tag--live">AO VIVO</span>}
       </button>
-      <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveVoice()}>
+      <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
         <PhoneOff />
       </button>
     </div>

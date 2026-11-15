@@ -11,7 +11,6 @@ export const ROOM_CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
 export const ROOM_CODE_LENGTH = 7;
 
 export const MAX_MEMBERS = 24;
-export const MAX_CHANNELS = 30;
 export const MAX_MESSAGES_PER_CHANNEL = 300;
 export const MAX_TEXT_LENGTH = 4000;
 /** Tamanho máximo (em caracteres do data URL) de uma imagem enviada no chat (~1,6 MB). */

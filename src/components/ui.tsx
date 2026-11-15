@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode, type RefObject } from 'react';
 import { X } from 'lucide-react';
 
 export const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -115,3 +115,26 @@ export function useMediaQuery(query: string): boolean {
 }
 
 export const useReducedMotion = () => useMediaQuery('(prefers-reduced-motion: reduce)');
+
+/** Vídeo de um MediaStream (sempre mudo: o som toca pelo AudioRenderer). */
+export function VideoEl({
+  stream,
+  mirror,
+  contain,
+  videoRef,
+}: {
+  stream: MediaStream;
+  mirror?: boolean;
+  contain?: boolean;
+  videoRef?: RefObject<HTMLVideoElement | null>;
+}) {
+  const own = useRef<HTMLVideoElement>(null);
+  const ref = videoRef ?? own;
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    void video.play().catch(() => {});
+  }, [stream, ref]);
+  return <video ref={ref} className={cx('video', mirror && 'is-mirror', contain && 'is-contain')} autoPlay playsInline muted />;
+}

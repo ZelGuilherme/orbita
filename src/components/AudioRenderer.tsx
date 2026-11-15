@@ -7,14 +7,16 @@ import { setApp, useApp } from '../store';
 const EMPTY_MEMBERS: Member[] = [];
 
 /**
- * Toca o áudio de todo mundo da chamada (e das lives assistidas), independente da
- * tela aberta — dá para ler o chat sem cair da voz.
+ * Toca o áudio de todo mundo da chamada e das lives assistidas. A live tem volume próprio,
+ * separado da voz de quem transmite.
  */
 export function AudioRenderer() {
   const voiceStreams = useApp((s) => s.voiceStreams);
   const liveStreams = useApp((s) => s.liveStreams);
   const deafened = useApp((s) => s.deafened);
   const volumes = useApp((s) => s.volumes);
+  const liveVolumes = useApp((s) => s.liveVolumes);
+  const liveMutes = useApp((s) => s.liveMutes);
   const localMutes = useApp((s) => s.localMutes);
   const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   const sinkId = useApp((s) => s.settings.audioOutputId);
@@ -36,7 +38,13 @@ export function AudioRenderer() {
       })}
       {Object.entries(liveStreams).map(([id, stream]) =>
         stream.getAudioTracks().length ? (
-          <RemoteAudio key={`l-${id}-${stream.id}`} stream={stream} volume={(volumes[baseId(id)] ?? 100) / 100} muted={deafened} sinkId={sinkId} />
+          <RemoteAudio
+            key={`l-${id}-${stream.id}`}
+            stream={stream}
+            volume={(liveVolumes[baseId(id)] ?? 100) / 100}
+            muted={deafened || !!liveMutes[id]}
+            sinkId={sinkId}
+          />
         ) : null,
       )}
       {blocked && (

@@ -6,7 +6,6 @@ import {
   HEARTBEAT_MS,
   HISTORY_IMAGE_BUDGET,
   HUB_PREFIX,
-  MAX_CHANNELS,
   MAX_IMAGE_CHARS,
   MAX_MEMBERS,
   MAX_MESSAGES_PER_CHANNEL,
@@ -15,6 +14,7 @@ import {
   REACTIONS,
   RECONNECT_GRACE_MS,
 } from './config';
+import { allowFx, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
 import type {
   AdminAction,
@@ -29,7 +29,7 @@ import type {
   RejectReason,
   RoomState,
 } from './protocol';
-import { clampText, randomId, sanitizeChannelName, sanitizeColor, sanitizeName, sanitizeRoomName } from './util';
+import { clampText, randomId, sanitizeColor, sanitizeName, sanitizeRoomName } from './util';
 import { PeerWire, type Wire } from './wire';
 
 /**
@@ -61,7 +61,9 @@ const IMAGE_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 export function createRoom(code: string, name: string, hostId: string): HubInit {
   const now = Date.now();
   const roomName = sanitizeRoomName(name);
-  const general = { id: randomId(8), name: 'geral', type: 'text' as const };
+  // uma sala = um chat de texto + uma chamada de voz
+  const chat = { id: randomId(8), name: 'chat', type: 'text' as const };
+  const call = { id: randomId(8), name: 'Chamada', type: 'voice' as const };
   return {
     state: {
       code,
@@ -72,17 +74,12 @@ export function createRoom(code: string, name: string, hostId: string): HubInit 
       epoch: 1,
       banned: [],
       members: [],
-      channels: [
-        general,
-        { id: randomId(8), name: 'links-e-memes', type: 'text' },
-        { id: randomId(8), name: 'Sala de voz', type: 'voice' },
-        { id: randomId(8), name: 'Palco das lives', type: 'voice' },
-      ],
+      channels: [chat, call],
     },
     messages: [
       {
         id: randomId(14),
-        channelId: general.id,
+        channelId: chat.id,
         authorId: '',
         authorName: APP_NAME,
         authorColor: '',
@@ -104,6 +101,7 @@ export class Hub {
   private byMember = new Map<string, Client>();
   private graceTimers = new Map<string, number>();
   private heartbeat = 0;
+  private fxLimits = new Map<string, FxLimits>();
   private statePending = false;
   private stopped = false;
 
@@ -238,6 +236,7 @@ export class Hub {
     clearTimeout(this.graceTimers.get(id));
     this.graceTimers.delete(id);
     this.state.members = this.state.members.filter((m) => m.id !== id);
+    this.fxLimits.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
     this.pushState();
   }
@@ -297,6 +296,16 @@ export class Hub {
         me.color = sanitizeColor(msg.color);
         this.pushState();
         return;
+      case 'fx': {
+        const streamer = this.member(typeof msg.streamerId === 'string' ? msg.streamerId : null);
+        const fx = validFx(msg.fx);
+        if (!streamer?.live || !streamer.live.effects || !fx) return;
+        let limits = this.fxLimits.get(me.id);
+        if (!limits) this.fxLimits.set(me.id, (limits = { laser: [], fx: [], nudge: 0 }));
+        if (!allowFx(limits, fx, Date.now())) return;
+        this.broadcast({ t: 'fx', from: me.id, streamerId: streamer.id, fx }, me.id);
+        return;
+      }
       case 'live:watch': {
         const streamer = typeof msg.streamerId === 'string' ? this.byMember.get(msg.streamerId) : undefined;
         if (streamer && msg.streamerId !== me.id) {
@@ -479,40 +488,6 @@ export class Hub {
         this.state.name = sanitizeRoomName(action.name);
         this.pushState();
         return;
-      case 'channel:create': {
-        if (this.state.channels.length >= MAX_CHANNELS) return;
-        const type = action.type === 'voice' ? 'voice' : 'text';
-        this.state.channels.push({ id: randomId(8), name: sanitizeChannelName(action.name, type), type });
-        this.pushState();
-        return;
-      }
-      case 'channel:rename': {
-        const channel = this.state.channels.find((c) => c.id === action.id);
-        if (!channel) return;
-        channel.name = sanitizeChannelName(action.name, channel.type);
-        this.pushState();
-        return;
-      }
-      case 'channel:delete': {
-        const channel = this.state.channels.find((c) => c.id === action.id);
-        if (!channel) return;
-        // mantém ao menos um canal de cada tipo
-        if (this.state.channels.filter((c) => c.type === channel.type).length <= 1) return;
-        this.state.channels = this.state.channels.filter((c) => c !== channel);
-        if (channel.type === 'voice') {
-          for (const member of this.state.members) {
-            if (member.voiceChannelId === channel.id) {
-              member.voiceChannelId = null;
-              member.cameraOn = false;
-              member.live = null;
-            }
-          }
-        } else {
-          this.messages = this.messages.filter((m) => m.channelId !== channel.id);
-        }
-        this.pushState();
-        return;
-      }
       case 'end':
         this.end();
         return;
@@ -596,6 +571,7 @@ function validLive(value: unknown): LiveInfo | null {
     quality: QUALITIES.find((q) => q === live.quality) ?? '720p',
     audio: !!live.audio,
     viewers: Math.max(0, Math.min(99, Math.floor(Number(live.viewers) || 0))),
+    effects: live.effects !== false,
   };
 }
 

@@ -7,6 +7,7 @@ import './styles/room.css';
 import './styles/chat.css';
 import './styles/call.css';
 import './styles/modals.css';
+import './styles/fx.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

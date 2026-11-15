@@ -10,8 +10,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Hash, ImagePlus, LoaderCircle, Menu, Orbit, Pencil, Send, Smile, SmilePlus, Trash2, UserPlus, Users, X } from 'lucide-react';
-import { deleteMessage, editMessage, notifyTyping, react, sendMessage } from '../controller';
+import { ImagePlus, LoaderCircle, MessageSquare, Orbit, PanelRightClose, Pencil, Send, Smile, SmilePlus, Trash2, X } from 'lucide-react';
+import { deleteMessage, editMessage, notifyTyping, react, sendMessage, setChatOpen } from '../controller';
 import { MAX_TEXT_LENGTH, QUICK_EMOJIS, REACTIONS } from '../lib/config';
 import { imageToAttachment } from '../lib/images';
 import { isJumbo, mentionKeys, mentionsName, renderMarkdown } from '../lib/markdown';
@@ -21,45 +21,16 @@ import { setApp, toast, useApp } from '../store';
 import { Planet } from './Planet';
 import { cx, IconButton, useNow } from './ui';
 
-const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_MEMBERS: Member[] = [];
-const EMPTY_TYPING: Record<string, number> = {};
 const GROUP_WINDOW_MS = 7 * 60_000;
 
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
 
-export function ChannelHeader({ icon, title, children }: { icon: ReactNode; title: string; children?: ReactNode }) {
-  const showMembers = useApp((s) => s.showMembers);
-  return (
-    <header className="main-header">
-      <button type="button" className="main-header__nav" onClick={() => setApp({ navOpen: true })} aria-label="Abrir canais">
-        <Menu size={20} />
-      </button>
-      <span className="main-header__icon">{icon}</span>
-      <h1 className="main-header__title">{title}</h1>
-      <div className="main-header__tools">
-        {children}
-        <IconButton label="Convidar" tipPos="bottom" onClick={() => setApp({ modal: { kind: 'invite' } })}>
-          <UserPlus size={20} />
-        </IconButton>
-        <IconButton
-          label={showMembers ? 'Esconder membros' : 'Mostrar membros'}
-          tipPos="bottom"
-          active={showMembers}
-          onClick={() => setApp({ showMembers: !showMembers })}
-        >
-          <Users size={20} />
-        </IconButton>
-      </div>
-    </header>
-  );
-}
-
-export function ChatView({ channelId }: { channelId: string }) {
-  const channel = useApp((s) => s.room?.channels.find((c) => c.id === channelId));
+/** O chat da sala, num painel à direita que dá para esconder. */
+export function ChatPanel() {
+  const roomName = useApp((s) => s.room?.name ?? '');
   const [dragging, setDragging] = useState(false);
   const [dropped, setDropped] = useState<File | null>(null);
-  if (!channel) return null;
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -69,8 +40,9 @@ export function ChatView({ channelId }: { channelId: string }) {
   };
 
   return (
-    <section
-      className="chat"
+    <aside
+      className="chat-panel"
+      aria-label="Chat"
       onDragOver={(e) => {
         if ([...e.dataTransfer.types].includes('Files')) {
           e.preventDefault();
@@ -82,16 +54,22 @@ export function ChatView({ channelId }: { channelId: string }) {
       }}
       onDrop={onDrop}
     >
-      <ChannelHeader icon={<Hash size={22} />} title={channel.name} />
-      <MessageList channelId={channelId} channelName={channel.name} />
-      <Composer channelId={channelId} channelName={channel.name} dropped={dropped} onDroppedHandled={() => setDropped(null)} />
-      {dragging && <div className="drop-overlay">Solte a imagem para enviar em #{channel.name}</div>}
-    </section>
+      <header className="chat-panel__head">
+        <MessageSquare size={18} />
+        <h2>Chat</h2>
+        <IconButton label="Esconder o chat" tipPos="bottom" className="chat-panel__close" onClick={() => setChatOpen(false)}>
+          <PanelRightClose size={19} />
+        </IconButton>
+      </header>
+      <MessageList roomName={roomName} />
+      <Composer dropped={dropped} onDroppedHandled={() => setDropped(null)} />
+      {dragging && <div className="drop-overlay">Solte a imagem para enviar no chat</div>}
+    </aside>
   );
 }
 
-function MessageList({ channelId, channelName }: { channelId: string; channelName: string }) {
-  const messages = useApp((s) => s.messages[channelId] ?? EMPTY_MESSAGES);
+function MessageList({ roomName }: { roomName: string }) {
+  const messages = useApp((s) => s.messages);
   const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   const meId = useApp((s) => s.meId);
   const isHost = useApp((s) => s.isHost);
@@ -153,10 +131,10 @@ function MessageList({ channelId, channelName }: { channelId: string; channelNam
     <div className="messages" ref={ref} onScroll={onScroll}>
       <div className="chan-welcome">
         <div className="chan-welcome__icon">
-          <Hash size={34} />
+          <MessageSquare size={30} />
         </div>
-        <h2>Bem-vindo a #{channelName}!</h2>
-        <p>Este é o começo do canal. As mensagens vivem só enquanto a órbita existir — nada fica em servidor.</p>
+        <h2>Chat de {roomName}</h2>
+        <p>As mensagens vivem só enquanto a órbita existir. Nada fica salvo em servidor.</p>
       </div>
       {items}
     </div>
@@ -193,7 +171,7 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
   return (
     <div className={cx('msg', head && 'msg--head', mentioned && 'msg--mention')}>
       {head ? (
-        <Planet name={message.authorName} color={message.authorColor} size={40} className="msg__avatar" />
+        <Planet name={message.authorName} color={message.authorColor} size={36} className="msg__avatar" />
       ) : (
         <time className="msg__hover-time">{formatTime(message.ts)}</time>
       )}
@@ -327,17 +305,7 @@ function ImageAttachment({ attachment, onLoad }: { attachment: Attachment; onLoa
   );
 }
 
-function Composer({
-  channelId,
-  channelName,
-  dropped,
-  onDroppedHandled,
-}: {
-  channelId: string;
-  channelName: string;
-  dropped: File | null;
-  onDroppedHandled: () => void;
-}) {
+function Composer({ dropped, onDroppedHandled }: { dropped: File | null; onDroppedHandled: () => void }) {
   const [text, setText] = useState('');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [busy, setBusy] = useState(false);
@@ -373,7 +341,7 @@ function Composer({
   const send = () => {
     const body = text.trim();
     if (!body && !attachment) return;
-    sendMessage(channelId, body, attachment ?? undefined);
+    sendMessage(body, attachment ?? undefined);
     setText('');
     setAttachment(null);
     area.current?.focus();
@@ -442,10 +410,11 @@ function Composer({
           rows={1}
           value={text}
           maxLength={MAX_TEXT_LENGTH}
-          placeholder={`Conversar em #${channelName}`}
+          placeholder="Mensagem"
+          aria-label="Mensagem"
           onChange={(e) => {
             setText(e.target.value);
-            if (e.target.value) notifyTyping(channelId);
+            if (e.target.value) notifyTyping();
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
@@ -471,14 +440,14 @@ function Composer({
           <Send size={18} />
         </button>
       </div>
-      <TypingIndicator channelId={channelId} />
+      <TypingIndicator />
       {net === 'reconnecting' && <div className="composer__note">Reconectando… o que você mandar agora sai quando a órbita voltar.</div>}
     </div>
   );
 }
 
-function TypingIndicator({ channelId }: { channelId: string }) {
-  const typing = useApp((s) => s.typing[channelId] ?? EMPTY_TYPING);
+function TypingIndicator() {
+  const typing = useApp((s) => s.typing);
   const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   const meId = useApp((s) => s.meId);
   const now = useNow(1_000);

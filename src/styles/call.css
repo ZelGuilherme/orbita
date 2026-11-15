@@ -23,9 +23,16 @@
 
 .call__join {
   flex: none;
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px 22px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 16px 20px;
+}
+
+.call__join-hint {
+  font-size: 13px;
+  color: var(--text-3);
+  text-align: center;
 }
 
 .seg {
@@ -258,6 +265,7 @@
 
 .tile__label {
   position: absolute;
+  z-index: 6;
   left: 10px;
   bottom: 10px;
   max-width: calc(100% - 20px);
@@ -285,6 +293,7 @@
 
 .tile__tools {
   position: absolute;
+  z-index: 7;
   top: 8px;
   right: 8px;
   display: flex;
@@ -295,8 +304,15 @@
 }
 
 .tile:hover .tile__tools,
+.tile:focus-within .tile__tools,
 .tile--big .tile__tools {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .tile__tools {
+    opacity: 1;
+  }
 }
 
 .tile__tools .icon-btn {
@@ -373,6 +389,92 @@
 .ctrl.is-live {
   background: var(--live);
   color: #fff;
+}
+
+.ctrl.is-talking {
+  background: var(--ok);
+  color: var(--bg-0);
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.25);
+}
+
+.ctrl__tag {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 15px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-2);
+  pointer-events: none;
+}
+
+.ctrl__tag--live {
+  background: #fff;
+  border-color: #fff;
+  color: var(--live);
+}
+
+/* volume da live */
+.live-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding-right: 4px;
+  border-radius: 8px;
+  background: rgba(5, 6, 15, 0.74);
+  color: #fff;
+}
+
+.live-volume .icon-btn {
+  background: transparent !important;
+  color: #fff;
+}
+
+.live-volume input[type='range'] {
+  width: 0;
+  opacity: 0;
+  transition:
+    width 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.live-volume:hover input[type='range'],
+.live-volume:focus-within input[type='range'],
+.tile--big .live-volume input[type='range'] {
+  width: 96px;
+  opacity: 1;
+}
+
+.live-volume__value {
+  display: none;
+  min-width: 34px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-volume:hover .live-volume__value,
+.live-volume:focus-within .live-volume__value,
+.tile--big .live-volume .live-volume__value {
+  display: inline;
+}
+
+.live-volume.is-disabled {
+  position: relative;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  color: var(--text-3);
 }
 
 .ctrl--leave {

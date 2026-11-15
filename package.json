@@ -16,6 +16,7 @@
     "test:e2e": "node tests/e2e/run.mjs"
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "lucide-react": "^1.65.0",
     "peerjs": "^1.5.5",
     "react": "^19.3.1",

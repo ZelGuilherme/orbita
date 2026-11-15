@@ -12,7 +12,7 @@ export function randomFrom(alphabet: string, length: number): string {
 export const randomId = (length = 12) => randomFrom(ID_ALPHABET, length);
 export const roomCode = () => randomFrom(ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH);
 
-/** Aceita um código puro ou um link de convite (…#/sala/codigo). */
+/** Aceita um código puro, um link de convite (…#/sala/codigo) ou web+orbita://sala/codigo. */
 export function parseRoomCode(input: string): string | null {
   const value = input.trim();
   const fromLink = value.match(/sala\/([a-z0-9]{4,16})/i);
@@ -44,21 +44,6 @@ export function sanitizeColor(value: unknown): string {
 
 export function sanitizeRoomName(value: unknown): string {
   return clampText(value, 80).replace(/\s+/g, ' ').trim().slice(0, 40) || 'Minha órbita';
-}
-
-export function sanitizeChannelName(value: unknown, type: 'text' | 'voice'): string {
-  let name = clampText(value, 80).trim();
-  if (type === 'text') {
-    name = name
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^\p{L}\p{N}_-]/gu, '')
-      .replace(/-+/g, '-')
-      .slice(0, 32);
-  } else {
-    name = name.replace(/\s+/g, ' ').slice(0, 32);
-  }
-  return name || (type === 'text' ? 'canal' : 'Sala de voz');
 }
 
 export function initials(name: string, max = 1): string {

@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { Crown, Radio, Rocket, Settings, Shield, Sparkles, TriangleAlert } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { AppWindow, Crown, Download, Radio, Rocket, Settings, Shield, Sparkles, TriangleAlert } from 'lucide-react';
 import { createRoom, joinRoom, updateProfile } from '../controller';
 import { PLANET_COLORS, REPO_URL } from '../lib/config';
+import { appLikelyInstalled, canInstall, isStandalone, onInstallChange, openInApp, promptInstall } from '../lib/install';
 import { planetBackground, sanitizeName } from '../lib/util';
 import { setApp, useApp } from '../store';
 import { OrbitLogo } from './OrbitLogo';
@@ -36,6 +37,12 @@ export function Landing() {
   const [roomName, setRoomName] = useState(() => `Órbita de ${profile.name.split(' ')[0]}`);
   const [code, setCode] = useState(inviteCode ?? '');
   const secure = window.isSecureContext;
+  const installable = useSyncExternalStore(onInstallChange, canInstall, () => false);
+  const standalone = isStandalone();
+  const installed = !standalone && appLikelyInstalled();
+
+  // o perfil é o mesmo no navegador e no app instalado: se mudou lá, atualiza aqui
+  useEffect(() => setName(profile.name), [profile.name]);
 
   useEffect(() => {
     if (inviteCode) {
@@ -112,8 +119,8 @@ export function Landing() {
             <Planet name={name || '?'} color={profile.color} size={68} />
             <div className="profile-picker__fields">
               <label className="field">
-                <span>Seu nome</span>
-                <input value={name} maxLength={32} onChange={(e) => setName(e.target.value)} onBlur={commitName} required />
+                <span>Seu perfil</span>
+                <input value={name} maxLength={32} onChange={(e) => setName(e.target.value)} onBlur={commitName} aria-label="Seu nome" required />
               </label>
               <Swatches value={profile.color} onChange={(color) => updateProfile({ color })} />
             </div>
@@ -169,9 +176,19 @@ export function Landing() {
               : 'Peça o link pro host. A conexão é direta entre vocês.'}
           </p>
           <div className="landing__footer">
-            <button type="button" className="link-btn" onClick={() => setApp({ modal: { kind: 'settings', tab: 'rede' } })}>
+            <button type="button" className="link-btn" onClick={() => setApp({ modal: { kind: 'settings', tab: 'voz' } })}>
               <Settings size={14} /> Configurações
             </button>
+            {installable && (
+              <button type="button" className="link-btn" onClick={() => void promptInstall()}>
+                <Download size={14} /> Instalar o app
+              </button>
+            )}
+            {installed && (
+              <button type="button" className="link-btn" onClick={() => void openInApp(null)}>
+                <AppWindow size={14} /> Abrir no app
+              </button>
+            )}
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               Código aberto no GitHub
             </a>

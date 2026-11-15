@@ -1,48 +1,69 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
+  AppWindow,
+  AudioLines,
   Copy,
   Crown,
   Download,
   ExternalLink,
-  Hash,
   Info,
+  Keyboard,
+  Lightbulb,
   Lock,
   Mic,
+  Monitor,
   MonitorUp,
   Radio,
+  RefreshCw,
   Share2,
-  Trash2,
+  SlidersHorizontal,
+  Square,
+  SquareArrowOutUpRight,
   User,
   UserPlus,
-  Volume2,
   Wifi,
   X,
 } from 'lucide-react';
 import {
   copyInvite,
-  createChannel,
-  deleteChannel,
   endRoom,
-  renameChannel,
+  pauseShortcuts,
   renameRoom,
   setLocked,
   shareInvite,
   startLive,
+  stopLive,
+  switchLiveSource,
   transferAndLeave,
+  updateLiveOptions,
   updateProfile,
   updateSettings,
 } from '../controller';
 import { APP_VERSION, REPO_URL } from '../lib/config';
-import { LIVE_PRESETS, levelFromBuffer } from '../lib/media';
+import {
+  comboFromKeyboard,
+  comboFromMouse,
+  comboParts,
+  DEFAULT_KEYBINDS,
+  hasModifier,
+  isMouseCombo,
+  KEY_ACTIONS,
+  mainKey,
+  reservedCombo,
+  type KeyAction,
+} from '../lib/keybinds';
+import { LIVE_PRESETS, type LiveSurface } from '../lib/media';
 import { parseIceServers } from '../lib/peer';
-import type { Channel, ChannelType, LiveQuality } from '../lib/protocol';
-import { DEFAULT_NETWORK } from '../lib/storage';
+import type { LiveQuality } from '../lib/protocol';
+import { DEFAULT_NETWORK, type NoiseFilter } from '../lib/storage';
 import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
-import { setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
+import { VoiceProcessor, voiceOptions } from '../lib/voice';
+import { getApp, setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
+import { canFloat, openFloating } from './Floating';
 import { Swatches } from './Landing';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
-import { cx, Modal, Switch } from './ui';
+import { cx, IconButton, Modal, Switch } from './ui';
 
 export function Modals() {
   const modal = useApp((s) => s.modal);
@@ -53,14 +74,12 @@ export function Modals() {
       return <InviteModal onClose={close} />;
     case 'settings':
       return <SettingsModal initial={modal.tab} onClose={close} />;
-    case 'golive':
-      return <GoLiveModal onClose={close} />;
+    case 'live':
+      return <LiveModal onClose={close} />;
     case 'leave':
       return <LeaveModal onClose={close} />;
     case 'room':
       return <RoomModal onClose={close} />;
-    case 'channel':
-      return <ChannelModal type={modal.type} channel={modal.channel} onClose={close} />;
     case 'image':
       return <ImageModal src={modal.src} name={modal.name} onClose={close} />;
     case 'confirm':
@@ -124,8 +143,10 @@ function InviteModal({ onClose }: { onClose: () => void }) {
 
 const TABS: Array<[SettingsTab, string, ReactNode]> = [
   ['perfil', 'Perfil', <User size={17} key="u" />],
-  ['audio', 'Voz e vídeo', <Mic size={17} key="m" />],
+  ['voz', 'Voz e vídeo', <Mic size={17} key="m" />],
+  ['filtros', 'Filtros de som', <SlidersHorizontal size={17} key="f" />],
   ['live', 'Lives', <Radio size={17} key="r" />],
+  ['atalhos', 'Atalhos', <Keyboard size={17} key="k" />],
   ['rede', 'Rede', <Wifi size={17} key="w" />],
   ['sobre', 'Sobre', <Info size={17} key="i" />],
 ];
@@ -140,7 +161,7 @@ function SettingsModal({ initial, onClose }: { initial?: SettingsTab; onClose: (
             <OrbitLogo size={28} /> Configurações
           </span>
           {TABS.map(([key, label, icon]) => (
-            <button key={key} type="button" className={cx(tab === key && 'is-on')} onClick={() => setTab(key)}>
+            <button key={key} type="button" className={cx(tab === key && 'is-on')} aria-current={tab === key} onClick={() => setTab(key)}>
               {icon}
               {label}
             </button>
@@ -151,8 +172,10 @@ function SettingsModal({ initial, onClose }: { initial?: SettingsTab; onClose: (
             <X size={20} />
           </button>
           {tab === 'perfil' && <ProfileTab />}
-          {tab === 'audio' && <AudioTab />}
+          {tab === 'voz' && <VoiceTab goTo={setTab} />}
+          {tab === 'filtros' && <FiltersTab />}
           {tab === 'live' && <LiveTab />}
+          {tab === 'atalhos' && <KeybindsTab />}
           {tab === 'rede' && <NetworkTab />}
           {tab === 'sobre' && <AboutTab />}
         </div>
@@ -165,6 +188,8 @@ function ProfileTab() {
   const profile = useApp((s) => s.profile);
   const isHost = useApp((s) => s.isHost);
   const [name, setName] = useState(profile.name);
+  // o nome pode mudar em outra janela (o app instalado e o navegador dividem o perfil)
+  useEffect(() => setName(profile.name), [profile.name]);
   const commit = () => {
     const clean = sanitizeName(name);
     setName(clean);
@@ -192,7 +217,10 @@ function ProfileTab() {
         <span>Cor do seu planeta</span>
         <Swatches value={profile.color} onChange={(color) => updateProfile({ color })} />
       </div>
-      <p className="muted small">Seu perfil fica salvo só neste navegador. Não existe conta nem servidor guardando nada.</p>
+      <p className="muted small">
+        Seu perfil fica salvo neste navegador (e no app do Órbita instalado por ele). Mudou aqui, muda lá também. Não existe conta nem servidor
+        guardando nada.
+      </p>
     </>
   );
 }
@@ -214,7 +242,7 @@ function DeviceSelect({
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Padrão do sistema</option>
         {devices
-          .filter((d) => d.deviceId && d.deviceId !== 'default')
+          .filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
           .map((d, i) => (
             <option key={d.deviceId} value={d.deviceId}>
               {d.label || `${label} ${i + 1}`}
@@ -225,11 +253,9 @@ function DeviceSelect({
   );
 }
 
-function AudioTab() {
-  const settings = useApp((s) => s.settings);
+function useDevices() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
-
   const refresh = useCallback(async () => {
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
@@ -239,14 +265,12 @@ function AudioTab() {
       setDevices([]);
     }
   }, []);
-
   useEffect(() => {
     void refresh();
     const md = navigator.mediaDevices;
     md?.addEventListener('devicechange', refresh);
     return () => md?.removeEventListener('devicechange', refresh);
   }, [refresh]);
-
   const grant = async () => {
     for (const constraints of [{ audio: true, video: true }, { audio: true }]) {
       try {
@@ -259,8 +283,14 @@ function AudioTab() {
     }
     void refresh();
   };
+  return { devices, needsPermission, grant };
+}
 
+function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
+  const settings = useApp((s) => s.settings);
+  const { devices, needsPermission, grant } = useDevices();
   const canPickOutput = 'setSinkId' in HTMLMediaElement.prototype;
+  const ptt = settings.keybinds.pushToTalk;
   return (
     <>
       <h3 className="settings__title">Voz e vídeo</h3>
@@ -289,24 +319,45 @@ function AudioTab() {
           />
         )}
       </div>
-      <MicTest threshold={settings.vadThreshold} onThreshold={(vadThreshold) => updateSettings({ vadThreshold })} />
-      <Switch
-        label="Cancelamento de eco"
-        checked={settings.echoCancellation}
-        onChange={(echoCancellation) => updateSettings({ echoCancellation })}
-      />
-      <Switch
-        label="Supressão de ruído"
-        hint="Corta ventilador, teclado e barulho de fundo."
-        checked={settings.noiseSuppression}
-        onChange={(noiseSuppression) => updateSettings({ noiseSuppression })}
-      />
-      <Switch
-        label="Ganho automático"
-        hint="Ajusta o volume da sua voz sozinho."
-        checked={settings.autoGainControl}
-        onChange={(autoGainControl) => updateSettings({ autoGainControl })}
-      />
+
+      <div className="field">
+        <span>Modo de voz</span>
+        <div className="choice-grid choice-grid--2">
+          <button type="button" className={cx('choice', settings.voiceMode === 'vad' && 'is-on')} onClick={() => updateSettings({ voiceMode: 'vad' })}>
+            <AudioLines size={20} />
+            <span>
+              <b>Detecção de voz</b>
+              <small>Transmite quando você fala</small>
+            </span>
+          </button>
+          <button type="button" className={cx('choice', settings.voiceMode === 'ptt' && 'is-on')} onClick={() => updateSettings({ voiceMode: 'ptt' })}>
+            <Keyboard size={20} />
+            <span>
+              <b>Pressionar para falar</b>
+              <small>Só enquanto segura a tecla</small>
+            </span>
+          </button>
+        </div>
+      </div>
+      {settings.voiceMode === 'vad' ? (
+        <div className="field">
+          <span>Sensibilidade da voz</span>
+          <MicMeter threshold />
+          <span className="hint">Arraste o marcador branco: acima dele você aparece falando (o anel verde). Com o portão de ruído ligado, abaixo dele nada é transmitido.</span>
+        </div>
+      ) : (
+        <div className="field">
+          <span>Tecla de falar</span>
+          <div className="ptt-row">
+            {ptt ? <Keys combo={ptt} /> : <span className="muted">Nenhuma tecla escolhida</span>}
+            <button type="button" className="btn btn--sm" onClick={() => goTo('atalhos')}>
+              <Keyboard size={14} /> {ptt ? 'Trocar' : 'Escolher tecla'}
+            </button>
+          </div>
+          <span className="hint">Funciona com a janela do Órbita em foco (o navegador não deixa sites ouvirem o teclado em segundo plano).</span>
+        </div>
+      )}
+
       <div className="grid-2">
         <DeviceSelect
           label="Câmera"
@@ -324,7 +375,7 @@ function AudioTab() {
       </div>
       <Switch
         label="Sons da interface"
-        hint="Entrar e sair da voz, mensagens, menções e lives."
+        hint="Entrar e sair da chamada, mensagens, menções, lives e efeitos."
         checked={settings.sounds}
         onChange={(sounds) => updateSettings({ sounds })}
       />
@@ -332,82 +383,315 @@ function AudioTab() {
   );
 }
 
-function MicTest({ threshold, onThreshold }: { threshold: number; onThreshold: (value: number) => void }) {
+const NOISE_OPTIONS: Array<{ id: NoiseFilter; title: string; hint: string }> = [
+  { id: 'off', title: 'Desligada', hint: 'Som cru do microfone' },
+  { id: 'browser', title: 'Padrão', hint: 'A do navegador, leve' },
+  { id: 'rnnoise', title: 'IA (RNNoise)', hint: 'Corta teclado, ventilador e rua' },
+  { id: 'gtcrn', title: 'IA forte (GTCRN)', hint: 'Mais limpa, usa mais processador' },
+];
+
+function FiltersTab() {
+  const settings = useApp((s) => s.settings);
+  return (
+    <>
+      <h3 className="settings__title">Filtros de som</h3>
+      <p className="muted">Os filtros rodam no seu computador antes da voz sair. Teste e ouça o resultado aqui embaixo.</p>
+      <div className="field">
+        <span>Supressão de ruído</span>
+        <div className="choice-grid choice-grid--4">
+          {NOISE_OPTIONS.map((o) => (
+            <button key={o.id} type="button" className={cx('choice choice--stack', settings.noiseFilter === o.id && 'is-on')} onClick={() => updateSettings({ noiseFilter: o.id })}>
+              <b>{o.title}</b>
+              <small>{o.hint}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+      <Switch
+        label="Portão de ruído"
+        hint="Fecha o microfone entre as falas: só transmite acima da sensibilidade (ajuste em Voz e vídeo)."
+        checked={settings.noiseGate}
+        onChange={(noiseGate) => updateSettings({ noiseGate })}
+      />
+      <Switch
+        label="Cortar graves"
+        hint="Tira ronco, vento, ar-condicionado e batidas na mesa."
+        checked={settings.highpass}
+        onChange={(highpass) => updateSettings({ highpass })}
+      />
+      <Switch
+        label="Compressor de voz"
+        hint="Deixa o volume da sua voz mais uniforme (sussurro e grito ficam parecidos)."
+        checked={settings.compressor}
+        onChange={(compressor) => updateSettings({ compressor })}
+      />
+      <Switch
+        label="Cancelamento de eco"
+        hint="Evita que o som das caixas volte pelo microfone."
+        checked={settings.echoCancellation}
+        onChange={(echoCancellation) => updateSettings({ echoCancellation })}
+      />
+      <Switch
+        label="Ganho automático"
+        hint="O navegador ajusta o volume da sua voz sozinho."
+        checked={settings.autoGainControl}
+        onChange={(autoGainControl) => updateSettings({ autoGainControl })}
+      />
+      <label className="field">
+        <span>Volume do microfone — {settings.inputGain}%</span>
+        <input
+          type="range"
+          min={0}
+          max={200}
+          step={5}
+          value={settings.inputGain}
+          style={{ '--fill': `${settings.inputGain / 2}%` } as CSSProperties}
+          onChange={(e) => updateSettings({ inputGain: Number(e.target.value) })}
+        />
+      </label>
+      <div className="field">
+        <span>Testar</span>
+        <MicMeter monitor />
+      </div>
+    </>
+  );
+}
+
+/** Medidor do microfone com os filtros aplicados (e, opcionalmente, ouvindo o resultado). */
+function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boolean }) {
   const settings = useApp((s) => s.settings);
   const [on, setOn] = useState(false);
+  const [listen, setListen] = useState(false);
   const [level, setLevel] = useState(0);
-  const { audioInputId, echoCancellation, noiseSuppression, autoGainControl } = settings;
+  const [open, setOpen] = useState(false);
+  const [track, setTrack] = useState<MediaStreamTrack | null>(null);
+  const proc = useRef<VoiceProcessor | null>(null);
+  const audio = useRef<HTMLAudioElement>(null);
+  const { audioInputId, echoCancellation, autoGainControl, audioOutputId } = settings;
+  const browserNs = settings.noiseFilter === 'browser';
 
   useEffect(() => {
-    if (!on) {
-      setLevel(0);
-      return;
-    }
-    let stream: MediaStream | null = null;
-    let ctx: AudioContext | null = null;
-    let raf = 0;
+    if (!on) return;
     let cancelled = false;
+    let stream: MediaStream | null = null;
+    let p: VoiceProcessor | null = null;
     void (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             deviceId: audioInputId ? { ideal: audioInputId } : undefined,
             echoCancellation,
-            noiseSuppression,
+            noiseSuppression: browserNs,
             autoGainControl,
+            channelCount: 1,
           },
         });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        ctx = new AudioContext();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        ctx.createMediaStreamSource(stream).connect(analyser);
-        const buffer = new Float32Array(analyser.fftSize);
-        const loop = () => {
-          analyser.getFloatTimeDomainData(buffer);
-          setLevel(levelFromBuffer(buffer));
-          raf = requestAnimationFrame(loop);
-        };
-        loop();
+        if (cancelled) return;
+        p = await VoiceProcessor.create(stream.getAudioTracks()[0], voiceOptions(getApp().settings));
+        if (cancelled) return;
+        p.onLevel = setLevel;
+        p.onSpeaking = setOpen;
+        proc.current = p;
+        setTrack(p.track);
+        if (p.suppressorFailed) toast('Não consegui carregar essa supressão de ruído.', 'error');
       } catch (err) {
-        toast(`Não consegui abrir o microfone: ${errorMessage(err)}.`, 'error');
-        setOn(false);
+        if (!cancelled) {
+          toast(`Não consegui abrir o microfone: ${errorMessage(err)}.`, 'error');
+          setOn(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
+      proc.current = null;
+      p?.stop();
       stream?.getTracks().forEach((t) => t.stop());
-      void ctx?.close().catch(() => {});
+      setTrack(null);
+      setLevel(0);
+      setOpen(false);
     };
-  }, [on, audioInputId, echoCancellation, noiseSuppression, autoGainControl]);
+  }, [on, audioInputId, echoCancellation, autoGainControl, browserNs]);
+
+  const { noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold } = settings;
+  useEffect(() => {
+    void proc.current?.update(voiceOptions(getApp().settings));
+  }, [noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold]);
+
+  useEffect(() => {
+    const el = audio.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (!el) return;
+    if (listen && track) {
+      el.srcObject = new MediaStream([track]);
+      if (el.setSinkId) void el.setSinkId(audioOutputId).catch(() => {});
+      void el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
+    }
+  }, [listen, track, audioOutputId]);
 
   return (
-    <div className="field">
-      <span>Sensibilidade da voz</span>
-      <div className="mic-test">
-        <div className="meter">
-          <div className={cx('meter__fill', level > threshold && 'is-hot')} style={{ width: `${Math.round(level * 100)}%` }} />
+    <div className="mic-test">
+      <div className="meter">
+        <div className={cx('meter__fill', open && 'is-hot')} style={{ width: `${Math.round(level * 100)}%` }} />
+        {threshold && (
           <input
             className="meter__range"
             type="range"
             min={0.05}
             max={0.9}
             step={0.01}
-            value={threshold}
-            onChange={(e) => onThreshold(Number(e.target.value))}
+            value={vadThreshold}
+            onChange={(e) => updateSettings({ vadThreshold: Number(e.target.value) })}
             aria-label="Sensibilidade da voz"
           />
-        </div>
-        <button type="button" className="btn btn--sm" onClick={() => setOn(!on)}>
-          {on ? 'Parar teste' : 'Testar microfone'}
+        )}
+      </div>
+      {monitor && on && (
+        <label className="mic-test__listen" title="Use fones para não dar microfonia">
+          <input type="checkbox" checked={listen} onChange={(e) => setListen(e.target.checked)} /> Ouvir
+        </label>
+      )}
+      <button type="button" className="btn btn--sm" onClick={() => setOn(!on)}>
+        {on ? 'Parar teste' : 'Testar microfone'}
+      </button>
+      <audio ref={audio} hidden />
+    </div>
+  );
+}
+
+function Keys({ combo }: { combo: string }) {
+  return (
+    <span className="keys">
+      {comboParts(combo).map((part, i) => (
+        <kbd key={i}>{part}</kbd>
+      ))}
+    </span>
+  );
+}
+
+function KeybindsTab() {
+  const binds = useApp((s) => s.settings.keybinds);
+  const voiceMode = useApp((s) => s.settings.voiceMode);
+  const [recording, setRecording] = useState<KeyAction | null>(null);
+  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
+
+  const assign = useCallback((action: KeyAction, combo: string | null) => {
+    if (combo) {
+      const reserved = reservedCombo(combo);
+      if (reserved) {
+        setNotice({ error: true, text: reserved });
+        return;
+      }
+    }
+    const current = getApp().settings.keybinds;
+    const next = { ...current, [action]: combo };
+    let moved = '';
+    if (combo) {
+      for (const other of KEY_ACTIONS) {
+        if (other.id !== action && next[other.id] === combo) {
+          next[other.id] = null;
+          moved = other.label;
+        }
+      }
+    }
+    updateSettings({ keybinds: next });
+    setRecording(null);
+    if (moved) setNotice({ text: `Esse atalho era de “${moved}” e agora é só deste.` });
+    else if (combo && !hasModifier(combo) && !isMouseCombo(combo) && action !== 'pushToTalk' && /^(Key|Digit)/.test(mainKey(combo))) {
+      setNotice({ text: 'Atalhos de uma tecla só funcionam fora da caixa de mensagem.' });
+    } else setNotice(null);
+  }, []);
+
+  useEffect(() => {
+    if (!recording) return;
+    pauseShortcuts(true);
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const plain = !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
+      if (e.code === 'Escape' && plain) {
+        setRecording(null);
+        return;
+      }
+      if ((e.code === 'Backspace' || e.code === 'Delete') && plain) {
+        assign(recording, null);
+        return;
+      }
+      const combo = comboFromKeyboard(e);
+      if (combo) assign(recording, combo);
+    };
+    const onMouse = (e: MouseEvent) => {
+      const combo = comboFromMouse(e);
+      if (!combo) return;
+      e.preventDefault();
+      e.stopPropagation();
+      assign(recording, combo);
+    };
+    const stopNav = (e: MouseEvent) => {
+      if (comboFromMouse(e)) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('mousedown', onMouse, true);
+    window.addEventListener('mouseup', stopNav, true);
+    return () => {
+      pauseShortcuts(false);
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('mousedown', onMouse, true);
+      window.removeEventListener('mouseup', stopNav, true);
+    };
+  }, [recording, assign]);
+
+  return (
+    <>
+      <h3 className="settings__title">Atalhos</h3>
+      <p className="muted">
+        Clique num atalho e aperte a combinação nova (dá para usar os botões laterais do mouse). <kbd>Backspace</kbd> apaga, <kbd>Esc</kbd>{' '}
+        cancela. Os atalhos funcionam com a janela do Órbita em foco.
+      </p>
+      <div className="keybinds">
+        {KEY_ACTIONS.map((action) => {
+          const combo = binds[action.id];
+          const active = recording === action.id;
+          return (
+            <div key={action.id} className="keybind">
+              <span className="keybind__label">
+                <b>{action.label}</b>
+                {action.hint && <small>{action.hint}</small>}
+              </span>
+              <button
+                type="button"
+                className={cx('keybind__value', active && 'is-recording')}
+                onClick={() => {
+                  setNotice(null);
+                  setRecording(active ? null : action.id);
+                }}
+              >
+                {active ? 'Aperte as teclas…' : combo ? <Keys combo={combo} /> : <span className="muted">Nenhum</span>}
+              </button>
+              <IconButton label="Remover atalho" disabled={!combo} onClick={() => assign(action.id, null)}>
+                <X size={16} />
+              </IconButton>
+            </div>
+          );
+        })}
+      </div>
+      {notice && <p className={cx('notice', notice.error && 'notice--warn')}>{notice.text}</p>}
+      {voiceMode !== 'ptt' && binds.pushToTalk && (
+        <p className="muted small">A tecla de falar só vale com o modo de voz “Pressionar para falar” (em Voz e vídeo).</p>
+      )}
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => {
+            updateSettings({ keybinds: DEFAULT_KEYBINDS });
+            setNotice(null);
+          }}
+        >
+          <RefreshCw size={15} /> Restaurar padrões
         </button>
       </div>
-      <span className="hint">Arraste o marcador: acima dele, você aparece falando (o anel verde no seu planeta).</span>
-    </div>
+    </>
   );
 }
 
@@ -418,15 +702,15 @@ function LiveTab() {
       <h3 className="settings__title">Lives</h3>
       <p className="muted">
         Na live, sua tela vai direto para cada espectador. Cada pessoa assistindo usa um pouco do seu upload — com internet fraca, prefira
-        720p ou 480p.
+        720p ou 480p. Tudo isso também dá para mudar com a live no ar.
       </p>
       <div className="field">
         <span>Qualidade padrão</span>
         <QualityPicker value={settings.liveQuality} onChange={(liveQuality) => updateSettings({ liveQuality })} />
       </div>
       <Switch
-        label="Transmitir áudio"
-        hint="Som da aba ou do sistema (Chrome e Edge no Windows)."
+        label="Transmitir o som"
+        hint="Som da janela, da aba ou do sistema. O som da chamada fica de fora."
         checked={settings.liveAudio}
         onChange={(liveAudio) => updateSettings({ liveAudio })}
       />
@@ -435,6 +719,12 @@ function LiveTab() {
         hint="Ligado: jogos e vídeos (prioriza fluidez). Desligado: textos e código (prioriza nitidez)."
         checked={settings.liveMotion}
         onChange={(liveMotion) => updateSettings({ liveMotion })}
+      />
+      <Switch
+        label="Efeitos e laser dos espectadores"
+        hint="Reações, “chamar atenção”, animações e laser por cima da sua live."
+        checked={settings.liveEffects}
+        onChange={(liveEffects) => updateSettings({ liveEffects })}
       />
     </>
   );
@@ -446,7 +736,7 @@ function QualityPicker({ value, onChange }: { value: LiveQuality; onChange: (q: 
       {(Object.keys(LIVE_PRESETS) as LiveQuality[]).map((key) => {
         const preset = LIVE_PRESETS[key];
         return (
-          <button key={key} type="button" className={cx('quality', value === key && 'is-on')} onClick={() => onChange(key)}>
+          <button key={key} type="button" className={cx('quality', value === key && 'is-on')} aria-pressed={value === key} onClick={() => onChange(key)}>
             <b>{preset.label}</b>
             <span>{preset.hint}</span>
             <small>~{(preset.bitrate / 1e6).toFixed(1).replace('.', ',')} Mbps por espectador</small>
@@ -520,6 +810,7 @@ function NetworkTab() {
 }
 
 function AboutTab() {
+  const binds = useApp((s) => s.settings.keybinds);
   return (
     <>
       <div className="about-hero">
@@ -533,7 +824,7 @@ function AboutTab() {
       </div>
       <ul className="about-list">
         <li>
-          <b>Quem cria a sala é o host</b> — o centro da órbita. O navegador dele mantém a sala viva: membros, canais e histórico do chat.
+          <b>Quem cria a sala é o host</b> — o centro da órbita. O navegador dele mantém a sala viva: membros e histórico do chat.
         </li>
         <li>
           <b>Voz, vídeo e lives</b> vão direto de pessoa para pessoa (WebRTC, criptografado). O host não vê nem retransmite sua mídia.
@@ -548,12 +839,11 @@ function AboutTab() {
       </ul>
       <h4 className="settings__subtitle">Atalhos</h4>
       <div className="shortcuts">
-        <span>
-          <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> microfone
-        </span>
-        <span>
-          <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> ensurdecer
-        </span>
+        {KEY_ACTIONS.filter((a) => binds[a.id]).map((a) => (
+          <span key={a.id}>
+            <Keys combo={binds[a.id] as string} /> {a.label.toLowerCase()}
+          </span>
+        ))}
         <span>
           <kbd>Enter</kbd> envia · <kbd>Shift</kbd> + <kbd>Enter</kbd> nova linha
         </span>
@@ -567,44 +857,165 @@ function AboutTab() {
 
 // ───────────────────────── live ─────────────────────────
 
-function GoLiveModal({ onClose }: { onClose: () => void }) {
+const SURFACE_LABEL: Record<LiveSurface, { label: string; icon: ReactNode }> = {
+  monitor: { label: 'Tela inteira', icon: <Monitor size={15} /> },
+  window: { label: 'Janela', icon: <AppWindow size={15} /> },
+  browser: { label: 'Aba do navegador', icon: <AppWindow size={15} /> },
+  unknown: { label: 'Tela', icon: <Monitor size={15} /> },
+};
+
+/** Começa a live ou, com ela no ar, muda as opções na hora (sem encerrar). */
+function LiveModal({ onClose }: { onClose: () => void }) {
+  const live = useApp((s) => s.live);
   const settings = useApp((s) => s.settings);
-  const [quality, setQuality] = useState<LiveQuality>(settings.liveQuality);
-  const [audio, setAudio] = useState(settings.liveAudio);
-  const [motion, setMotion] = useState(settings.liveMotion);
+  const surface = useApp((s) => s.liveSurface);
   const [busy, setBusy] = useState(false);
-  const go = async () => {
-    setBusy(true);
-    updateSettings({ liveQuality: quality, liveAudio: audio, liveMotion: motion });
-    await startLive(quality, audio, motion);
-    setBusy(false);
-  };
+
+  if (!live) {
+    const go = async () => {
+      setBusy(true);
+      await startLive();
+      setBusy(false);
+    };
+    return (
+      <Modal
+        title={
+          <>
+            <Radio size={20} /> Iniciar live
+          </>
+        }
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn btn--ghost" onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn--live" disabled={busy} onClick={() => void go()}>
+              <MonitorUp size={16} /> Escolher o que transmitir
+            </button>
+          </>
+        }
+      >
+        <p className="muted">
+          Sua tela, janela ou aba vai direto para cada pessoa que clicar em “Assistir”. Dá para mudar tudo isso depois, com a live no ar.
+        </p>
+        <QualityPicker value={settings.liveQuality} onChange={(liveQuality) => updateSettings({ liveQuality })} />
+        <Switch
+          label="Transmitir o som"
+          hint="Som da janela, da aba ou do sistema. O som da chamada fica de fora."
+          checked={settings.liveAudio}
+          onChange={(liveAudio) => updateSettings({ liveAudio })}
+        />
+        <Switch label="Otimizar para movimento" hint="Jogos e vídeos. Desligue para textos e código." checked={settings.liveMotion} onChange={(liveMotion) => updateSettings({ liveMotion })} />
+        <Switch
+          label="Efeitos e laser dos espectadores"
+          hint="Reações, “chamar atenção”, animações e laser por cima da live."
+          checked={settings.liveEffects}
+          onChange={(liveEffects) => updateSettings({ liveEffects })}
+        />
+        <LiveTips />
+      </Modal>
+    );
+  }
+
+  const where = SURFACE_LABEL[surface ?? 'unknown'];
   return (
     <Modal
       title={
         <>
-          <Radio size={20} /> Iniciar live
+          <span className="live-badge">AO VIVO</span> Sua live
         </>
       }
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            Cancelar
+          <button
+            type="button"
+            className="btn btn--danger-ghost"
+            onClick={() => {
+              onClose();
+              stopLive();
+            }}
+          >
+            <Square size={14} /> Encerrar live
           </button>
-          <button type="button" className="btn btn--live" disabled={busy} onClick={() => void go()}>
-            <MonitorUp size={16} /> Escolher tela e entrar ao vivo
+          <span className="spacer" />
+          <button type="button" className="btn btn--primary" onClick={onClose}>
+            Pronto
           </button>
         </>
       }
     >
-      <p className="muted">
-        Sua tela vai direto para cada pessoa que clicar em “Assistir”, sem servidor no meio. Quem estiver na chamada também ouve sua voz.
-      </p>
-      <QualityPicker value={quality} onChange={setQuality} />
-      <Switch label="Transmitir áudio" hint="Marque “compartilhar áudio” na janela do navegador." checked={audio} onChange={setAudio} />
-      <Switch label="Otimizar para movimento" hint="Jogos e vídeos. Desligue para textos e código." checked={motion} onChange={setMotion} />
+      <div className="live-status">
+        <span>
+          {where.icon} {where.label}
+        </span>
+        <span>
+          {live.viewers} {live.viewers === 1 ? 'pessoa assistindo' : 'pessoas assistindo'}
+        </span>
+      </div>
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn--sm"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await switchLiveSource();
+            setBusy(false);
+          }}
+        >
+          <RefreshCw size={14} /> Trocar o que está sendo transmitido
+        </button>
+        {canFloat() && (
+          <button type="button" className="btn btn--sm" onClick={() => void openFloating()}>
+            <SquareArrowOutUpRight size={14} /> Janela flutuante
+          </button>
+        )}
+      </div>
+      <QualityPicker value={live.quality} onChange={(quality) => void updateLiveOptions({ quality })} />
+      <Switch
+        label="Som da live"
+        hint={live.audio ? 'Os espectadores ouvem o som do que você transmite.' : 'Ligar pede para escolher a fonte de novo, com o áudio marcado.'}
+        checked={live.audio}
+        onChange={(audio) => void updateLiveOptions({ audio })}
+      />
+      <Switch label="Otimizar para movimento" hint="Jogos e vídeos. Desligue para textos e código." checked={settings.liveMotion} onChange={(motion) => void updateLiveOptions({ motion })} />
+      <Switch
+        label="Efeitos e laser dos espectadores"
+        hint="Reações, “chamar atenção”, animações e laser por cima da live."
+        checked={live.effects}
+        onChange={(effects) => void updateLiveOptions({ effects })}
+      />
+      <LiveTips />
     </Modal>
+  );
+}
+
+function LiveTips() {
+  return (
+    <details className="tips">
+      <summary>
+        <Lightbulb size={15} /> Dicas: som da janela, barra do navegador e monitores
+      </summary>
+      <ul>
+        <li>
+          <b>Janela com som:</b> na aba “Janela”, escolha a janela e ative <i>compartilhar o áudio do app</i>. Funciona no Chrome, Edge e
+          Brave atualizados.
+        </li>
+        <li>
+          <b>Sem a barra “compartilhando esta guia”:</b> essa barra é do navegador e não some quando você transmite uma aba. Transmita a{' '}
+          <i>janela</i> do navegador (com o áudio do app) no lugar da aba: a imagem é a mesma e o som da chamada fica de fora.
+        </li>
+        <li>
+          <b>Tela inteira:</b> ative <i>compartilhar áudio do sistema</i>. O som do Órbita é removido automaticamente.
+        </li>
+        <li>
+          <b>Um monitor não aparece na lista?</b> Alguns navegadores (como o Brave em notebooks com duas placas de vídeo) listam só um dos
+          monitores. Transmita a janela que você quer mostrar, ou use o Edge/Chrome para a tela inteira.
+        </li>
+      </ul>
+    </details>
   );
 }
 
@@ -700,91 +1111,6 @@ function RoomModal({ onClose }: { onClose: () => void }) {
         checked={room.locked}
         onChange={setLocked}
       />
-    </Modal>
-  );
-}
-
-function ChannelModal({ type, channel, onClose }: { type: ChannelType; channel?: Channel; onClose: () => void }) {
-  const [name, setName] = useState(channel?.name ?? '');
-  const [kind, setKind] = useState<ChannelType>(channel?.type ?? type);
-  const sameKind = useApp((s) => s.room?.channels.filter((c) => c.type === kind).length ?? 0);
-  const save = () => {
-    if (!name.trim()) return;
-    if (channel) renameChannel(channel.id, name);
-    else createChannel(name, kind);
-    onClose();
-  };
-  const remove = () => {
-    if (!channel) return;
-    setApp({
-      modal: {
-        kind: 'confirm',
-        title: `Apagar ${channel.type === 'text' ? '#' : ''}${channel.name}?`,
-        body:
-          channel.type === 'text'
-            ? 'As mensagens deste canal somem para todo mundo.'
-            : 'Quem estiver na chamada deste canal será desconectado.',
-        confirm: 'Apagar canal',
-        danger: true,
-        action: () => deleteChannel(channel.id),
-      },
-    });
-  };
-  return (
-    <Modal
-      title={channel ? 'Editar canal' : 'Criar canal'}
-      onClose={onClose}
-      footer={
-        <>
-          {channel && sameKind > 1 && (
-            <button type="button" className="btn btn--danger-ghost" onClick={remove}>
-              <Trash2 size={16} /> Apagar
-            </button>
-          )}
-          <span className="spacer" />
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            Cancelar
-          </button>
-          <button type="button" className="btn btn--primary" disabled={!name.trim()} onClick={save}>
-            {channel ? 'Salvar' : 'Criar canal'}
-          </button>
-        </>
-      }
-    >
-      {!channel && (
-        <div className="kind-picker">
-          <button type="button" className={cx('kind', kind === 'text' && 'is-on')} onClick={() => setKind('text')}>
-            <Hash size={22} />
-            <span>
-              <b>Texto</b>
-              <small>Mensagens, imagens, emojis e reações</small>
-            </span>
-          </button>
-          <button type="button" className={cx('kind', kind === 'voice' && 'is-on')} onClick={() => setKind('voice')}>
-            <Volume2 size={22} />
-            <span>
-              <b>Voz</b>
-              <small>Chamada, câmera e lives</small>
-            </span>
-          </button>
-        </div>
-      )}
-      <label className="field">
-        <span>Nome do canal</span>
-        <span className="input-icon">
-          {kind === 'text' ? <Hash size={16} /> : <Volume2 size={16} />}
-          <input
-            value={name}
-            maxLength={32}
-            autoFocus
-            placeholder={kind === 'text' ? 'novo-canal' : 'Nova sala'}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save();
-            }}
-          />
-        </span>
-      </label>
     </Modal>
   );
 }

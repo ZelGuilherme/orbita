@@ -1,14 +1,49 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
+import { allowFx, emitFx, type FxLimits } from './lib/fx';
 import { baseId } from './lib/hub';
+import {
+  appLikelyInstalled,
+  canHandOff,
+  cleanProtocolParam,
+  codeFromUrl,
+  forgetInstalled,
+  markInstalled,
+  onAppLaunch,
+  openInApp,
+  stayInBrowser,
+  trackInstallation,
+  wantsBrowser,
+} from './lib/install';
+import {
+  comboFromMouse,
+  hasModifier,
+  isMouseCombo,
+  loadKeyboardLayout,
+  mainKey,
+  matchesKeyboard,
+  sameMainKey,
+  type KeyAction,
+} from './lib/keybinds';
 import { mentionsName } from './lib/markdown';
-import { MediaEngine, type MediaEvents } from './lib/media';
+import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
-import type { AdminAction, Attachment, ChannelType, ChatMessage, LiveQuality, Member, Presence, RoomState } from './lib/protocol';
+import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { setSoundsEnabled, sfx } from './lib/sounds';
-import { saveProfile, saveSettings, saveVolumes, type Profile, type Settings } from './lib/storage';
+import {
+  loadProfile,
+  loadSettings,
+  saveLiveVolumes,
+  saveProfile,
+  saveSettings,
+  saveUiPrefs,
+  saveVolumes,
+  SYNCED_KEYS,
+  type Profile,
+  type Settings,
+} from './lib/storage';
 import { copyText, errorMessage, inviteFromHash, inviteLink, parseRoomCode, randomId } from './lib/util';
-import { getApp, resetRoomState, setApp, toast, type AppState, type View } from './store';
+import { getApp, resetRoomState, setApp, textChannelOf, toast, voiceChannelOf, type AppState } from './store';
 
 /**
  * Cola entre a sessão P2P, a mídia e a interface. Os componentes só chamam estas
@@ -20,71 +55,77 @@ let media: MediaEngine | null = null;
 let typingSentAt = 0;
 let viewersTimer = 0;
 let initialized = false;
+let pendingJoin: string | null = null;
 const liveRetries = new Map<string, number>();
 const watchTimers = new Map<string, number>();
+const fxLimits: FxLimits = { laser: [], fx: [], nudge: 0 };
 
 function myMember(): Member | undefined {
   const s = getApp();
   return s.room?.members.find((m) => m.id === s.meId);
 }
 
+function voiceChannelId(): string | null {
+  return voiceChannelOf(getApp().room)?.id ?? null;
+}
+
 function presence(): Presence {
   const s = getApp();
-  return { voiceChannelId: s.voiceChannelId, micOn: s.micOn, deafened: s.deafened, cameraOn: s.cameraOn, live: s.live };
+  return {
+    voiceChannelId: s.inCall ? voiceChannelId() : null,
+    micOn: s.micOn,
+    deafened: s.deafened,
+    cameraOn: s.cameraOn,
+    live: s.live,
+  };
 }
 
 function sendPresence(patch: Partial<Presence>) {
   session?.send({ t: 'presence', presence: patch });
 }
 
-/** O microfone só transmite se estiver ligado, sem ensurdecer e sem bloqueio do host. */
+/** O microfone só transmite ligado, sem ensurdecer, sem bloqueio do host e (no modo PTT) com a tecla pressionada. */
 function effectiveMic(): boolean {
   const s = getApp();
-  return s.micOn && !s.deafened && !myMember()?.serverMuted;
+  return s.micOn && !s.deafened && !myMember()?.serverMuted && (s.settings.voiceMode !== 'ptt' || s.pttDown);
 }
 
-function byChannel(messages: ChatMessage[]): Record<string, ChatMessage[]> {
-  const out: Record<string, ChatMessage[]> = {};
-  for (const message of messages) (out[message.channelId] ??= []).push(message);
-  return out;
+/** O chat está à vista: aberto e com a janela visível. */
+function chatVisible(): boolean {
+  return getApp().chatOpen && document.visibilityState === 'visible';
 }
 
 function syncTitle() {
   const s = getApp();
-  const unread = Object.values(s.unread).reduce((a, b) => a + b, 0);
-  const mentions = Object.values(s.mentions).reduce((a, b) => a + b, 0);
   const base = s.room ? `${s.room.name} · ${APP_NAME}` : APP_NAME;
-  document.title = (mentions ? `(${mentions}) ` : unread ? '• ' : '') + base;
+  document.title = (s.mentions ? `(${s.mentions}) ` : s.unread ? '• ' : '') + base;
 }
 
 // ───────────────────────── eventos da sessão ─────────────────────────
 
+function chatOnly(messages: ChatMessage[], room: RoomState | null): ChatMessage[] {
+  const textId = textChannelOf(room)?.id;
+  return messages.filter((m) => m.channelId === textId);
+}
+
 function makeHandlers(meId: string): SessionHandlers {
   return {
     welcome: (state, messages) => {
-      setApp({ messages: byChannel(messages) });
+      setApp({ messages: chatOnly(messages, state).slice(-MAX_MESSAGES_PER_CHANNEL) });
       applyState(state, meId, true);
     },
     state: (state) => applyState(state, meId, false),
     chat: onChat,
-    chatUpdate: (message) =>
-      setApp((s) => ({
-        messages: {
-          ...s.messages,
-          [message.channelId]: (s.messages[message.channelId] ?? []).map((m) => (m.id === message.id ? message : m)),
-        },
-      })),
-    chatDelete: (id, channelId) =>
-      setApp((s) => ({
-        messages: { ...s.messages, [channelId]: (s.messages[channelId] ?? []).filter((m) => m.id !== id) },
-      })),
-    typing: (memberId, channelId) =>
-      setApp((s) => ({
-        typing: { ...s.typing, [channelId]: { ...(s.typing[channelId] ?? {}), [memberId]: Date.now() + 6_000 } },
-      })),
+    chatUpdate: (message) => setApp((s) => ({ messages: s.messages.map((m) => (m.id === message.id ? message : m)) })),
+    chatDelete: (id) => setApp((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+    typing: (memberId, channelId) => {
+      if (channelId !== textChannelOf(getApp().room)?.id) return;
+      setApp((s) => ({ typing: { ...s.typing, [memberId]: Date.now() + 6_000 } }));
+    },
     speaking: (memberId, on) =>
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
+    fx: onRemoteFx,
     status: (status, detail) => {
       if (status === 'reconnecting') setApp({ net: 'reconnecting', netDetail: detail ?? 'loss' });
       else if (status === 'connected') setApp({ net: 'connected', netDetail: '' });
@@ -98,14 +139,15 @@ function applyState(state: RoomState, meId: string, first: boolean) {
   const s = getApp();
   const prev = s.room;
   const mine = state.members.find((m) => m.id === meId);
+  const callId = voiceChannelOf(state)?.id ?? null;
   const patch: Partial<AppState> = { room: state, meId, isHost: state.hostId === meId };
 
   if (prev && !first) {
-    if (s.voiceChannelId) {
-      const inMyChannel = (r: RoomState) =>
-        new Set(r.members.filter((m) => m.voiceChannelId === s.voiceChannelId && m.id !== meId).map((m) => m.id));
-      const before = inMyChannel(prev);
-      const after = inMyChannel(state);
+    if (s.inCall) {
+      const inCall = (r: RoomState) =>
+        new Set(r.members.filter((m) => m.voiceChannelId && m.voiceChannelId === callId && m.id !== meId).map((m) => m.id));
+      const before = inCall(prev);
+      const after = inCall(state);
       if ([...after].some((id) => !before.has(id))) sfx.memberJoin();
       else if ([...before].some((id) => !after.has(id))) sfx.memberLeave();
     }
@@ -125,7 +167,7 @@ function applyState(state: RoomState, meId: string, first: boolean) {
     if (mine && !mine.serverMuted && wasMuted) toast('O host liberou seu microfone.', 'success');
   }
 
-  // quem saiu da voz não está mais falando
+  // quem saiu da chamada não está mais falando
   const speaking = { ...s.speaking };
   let speakingChanged = false;
   for (const id of Object.keys(speaking)) {
@@ -147,36 +189,29 @@ function applyState(state: RoomState, meId: string, first: boolean) {
     }
   }
   if (watchingChanged) patch.watching = watching;
-
-  if (!s.view || !state.channels.some((c) => c.id === s.view?.channelId)) {
-    const firstText = state.channels.find((c) => c.type === 'text');
-    patch.view = firstText ? { kind: 'text', channelId: firstText.id } : null;
-  }
   setApp(patch);
 
   if (mine) media?.setMicEnabled(effectiveMic());
-  if (s.voiceChannelId && !state.channels.some((c) => c.id === s.voiceChannelId)) leaveVoice();
+  if (s.inCall && !callId) leaveCall();
   media?.update(state);
   syncTitle();
 }
 
 function onChat(message: ChatMessage) {
   const s = getApp();
-  const list = [...(s.messages[message.channelId] ?? []), message].slice(-MAX_MESSAGES_PER_CHANNEL);
-  const viewing =
-    s.view?.kind === 'text' && s.view.channelId === message.channelId && document.visibilityState === 'visible';
+  if (message.channelId !== textChannelOf(s.room)?.id) return;
+  const viewing = chatVisible();
   const mine = message.authorId === s.meId;
   const mentioned = !mine && !message.system && mentionsName(message.text, s.profile.name);
-  const patch: Partial<AppState> = { messages: { ...s.messages, [message.channelId]: list } };
+  const patch: Partial<AppState> = { messages: [...s.messages, message].slice(-MAX_MESSAGES_PER_CHANNEL) };
   if (!viewing && !mine && !message.system) {
-    patch.unread = { ...s.unread, [message.channelId]: (s.unread[message.channelId] ?? 0) + 1 };
-    if (mentioned) patch.mentions = { ...s.mentions, [message.channelId]: (s.mentions[message.channelId] ?? 0) + 1 };
+    patch.unread = s.unread + 1;
+    if (mentioned) patch.mentions = s.mentions + 1;
   }
-  const typing = s.typing[message.channelId];
-  if (typing?.[message.authorId]) {
-    const next = { ...typing };
-    delete next[message.authorId];
-    patch.typing = { ...s.typing, [message.channelId]: next };
+  if (s.typing[message.authorId]) {
+    const typing = { ...s.typing };
+    delete typing[message.authorId];
+    patch.typing = typing;
   }
   setApp(patch);
   if (!mine && !message.system) {
@@ -198,7 +233,13 @@ function onEnded(reason: EndReason) {
   liveRetries.clear();
   resetRoomState();
   history.replaceState(null, '', location.pathname + location.search);
-  if (reason === 'left') {
+  const next = pendingJoin;
+  pendingJoin = null;
+  if (next) {
+    setApp({ phase: 'landing', inviteCode: next });
+    history.replaceState(null, '', `#/sala/${next}`);
+    void enterRoom('join', next);
+  } else if (reason === 'left') {
     setApp({ phase: 'landing', inviteCode: null });
     toast('Você saiu da órbita.');
   } else {
@@ -236,7 +277,7 @@ function mediaEvents(): MediaEvents {
       }, 500);
     },
     liveEnded: () => {
-      setApp({ live: null, localScreen: null });
+      setApp({ live: null, localScreen: null, liveSurface: null, floating: false });
       sendPresence({ live: null });
       toast('Sua live foi encerrada.');
     },
@@ -324,7 +365,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     media = new MediaEngine(mediaEvents(), () => getApp().settings);
     media.attach(created.peer, created.meId);
     if (created.state) media.update(created.state);
-    setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null });
+    setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null, unread: 0, mentions: 0 });
     history.replaceState(null, '', `#/sala/${created.code}`);
     if (mode === 'create') setApp({ modal: { kind: 'invite' } });
     sfx.join();
@@ -398,20 +439,17 @@ export async function shareInvite() {
 
 // ───────────────────────── chat ─────────────────────────
 
-export function openChannel(view: View) {
-  setApp((s) => {
-    const unread = { ...s.unread };
-    const mentions = { ...s.mentions };
-    if (view.kind === 'text') {
-      delete unread[view.channelId];
-      delete mentions[view.channelId];
-    }
-    return { view, unread, mentions, navOpen: false };
-  });
+export function setChatOpen(chatOpen: boolean) {
+  setApp((s) => ({ chatOpen, unread: chatOpen ? 0 : s.unread, mentions: chatOpen ? 0 : s.mentions }));
+  saveUiPrefs({ chatOpen });
   syncTitle();
 }
 
-export function sendMessage(channelId: string, text: string, attachment?: Attachment) {
+export const toggleChat = () => setChatOpen(!getApp().chatOpen);
+
+export function sendMessage(text: string, attachment?: Attachment) {
+  const channelId = textChannelOf(getApp().room)?.id;
+  if (!channelId) return;
   session?.send({ t: 'chat', channelId, text, attachment });
   typingSentAt = 0;
 }
@@ -420,40 +458,40 @@ export const editMessage = (id: string, text: string) => session?.send({ t: 'cha
 export const deleteMessage = (id: string) => session?.send({ t: 'chat:delete', id });
 export const react = (id: string, emoji: string) => session?.send({ t: 'chat:react', id, emoji });
 
-export function notifyTyping(channelId: string) {
+export function notifyTyping() {
   const now = Date.now();
-  if (now - typingSentAt < 2_500) return;
+  const channelId = textChannelOf(getApp().room)?.id;
+  if (!channelId || now - typingSentAt < 2_500) return;
   typingSentAt = now;
   session?.send({ t: 'typing', channelId });
 }
 
-// ───────────────────────── voz, câmera e lives ─────────────────────────
+// ───────────────────────── chamada, câmera e microfone ─────────────────────────
 
-export async function joinVoice(channelId: string) {
+export async function joinCall() {
   const s = getApp();
-  if (!media || !session || s.joiningVoice) return;
-  if (s.voiceChannelId === channelId) {
-    openChannel({ kind: 'voice', channelId });
-    return;
-  }
-  if (s.voiceChannelId) leaveVoice(true);
+  const channelId = voiceChannelId();
+  if (!media || !session || s.joiningVoice || s.inCall || !channelId) return;
   setApp({ joiningVoice: true });
   const engine = media;
   const micAvailable = await engine.joinVoice(channelId, effectiveMic());
   if (!session || media !== engine) return;
   const micOn = micAvailable ? getApp().micOn : false;
   if (!micAvailable) toast('Microfone indisponível ou bloqueado — você entrou só para ouvir.', 'error', 5_000);
-  setApp({ voiceChannelId: channelId, micOn, joiningVoice: false });
+  else if (engine.voiceFilterFailed) toast('Não consegui carregar a supressão de ruído escolhida. A voz está saindo sem ela.', 'error', 6_000);
+  setApp({ inCall: true, micOn, joiningVoice: false, peopleOpen: false });
   engine.setMicEnabled(effectiveMic());
   sendPresence({ voiceChannelId: channelId, micOn, deafened: getApp().deafened, cameraOn: false, live: null });
-  openChannel({ kind: 'voice', channelId });
   sfx.join();
+  if (getApp().settings.voiceMode === 'ptt' && !getApp().settings.keybinds.pushToTalk) {
+    toast('Seu modo de voz é “Pressionar para falar”, mas falta escolher a tecla em Configurações › Atalhos.', 'info', 7_000);
+  }
 }
 
-export function leaveVoice(silent = false) {
-  if (!getApp().voiceChannelId) return;
+export function leaveCall(silent = false) {
+  if (!getApp().inCall) return;
   media?.leaveVoice();
-  setApp({ voiceChannelId: null, cameraOn: false, live: null, localCamera: null, localScreen: null });
+  setApp({ inCall: false, cameraOn: false, live: null, liveSurface: null, localCamera: null, localScreen: null, floating: false, pttDown: false });
   sendPresence({ voiceChannelId: null, cameraOn: false, live: null });
   if (!silent) sfx.leave();
 }
@@ -488,9 +526,20 @@ export function toggleDeafen() {
   else sfx.unmute();
 }
 
+function setPushToTalk(down: boolean) {
+  const s = getApp();
+  if (s.pttDown === down) return;
+  setApp({ pttDown: down });
+  media?.setMicEnabled(effectiveMic());
+  if (s.inCall && s.micOn && !s.deafened) {
+    if (down) sfx.pttOn();
+    else sfx.pttOff();
+  }
+}
+
 export async function toggleCamera() {
   const s = getApp();
-  if (!media || !s.voiceChannelId) return;
+  if (!media || !s.inCall) return;
   try {
     const stream = await media.setCamera(!s.cameraOn);
     setApp({ cameraOn: !!stream, localCamera: stream });
@@ -500,15 +549,37 @@ export async function toggleCamera() {
   }
 }
 
-export async function startLive(quality: LiveQuality, audio: boolean, motion: boolean) {
-  if (!media || !getApp().voiceChannelId) return;
+// ───────────────────────── lives ─────────────────────────
+
+/** Dica para quando a pessoa pediu som, mas o navegador entregou a captura sem áudio. */
+function audioHint(surface: LiveSurface): string {
+  if (surface === 'window') return 'A live está sem som: na janela de escolha, ative a opção de compartilhar o áudio do app.';
+  if (surface === 'browser') return 'A live está sem som: na janela de escolha, ative “compartilhar áudio da guia”.';
+  if (surface === 'monitor') return 'A live está sem som: na janela de escolha, ative “compartilhar áudio do sistema”.';
+  return 'A live está sem som: este navegador não entregou o áudio da captura.';
+}
+
+function liveOptions(): LiveOptions {
+  const s = getApp().settings;
+  return { quality: s.liveQuality, audio: s.liveAudio, motion: s.liveMotion };
+}
+
+export async function startLive() {
+  if (!media || !getApp().inCall) return;
+  const opts = liveOptions();
   try {
-    const stream = await media.startLive(quality, audio, motion);
-    const live = { startedAt: Date.now(), quality, audio: stream.getAudioTracks().length > 0, viewers: 0 };
-    setApp({ live, localScreen: stream, modal: null });
+    const capture = await media.startLive(opts);
+    const live: LiveInfo = {
+      startedAt: Date.now(),
+      quality: opts.quality,
+      audio: capture.hasAudio && opts.audio,
+      viewers: 0,
+      effects: getApp().settings.liveEffects,
+    };
+    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto' });
     sendPresence({ live });
     sfx.live();
-    if (audio && !live.audio) toast('Sem áudio na live: marque “compartilhar áudio” na janela do navegador.', 'info', 6_000);
+    if (opts.audio && !capture.hasAudio) toast(audioHint(capture.surface), 'info', 8_000);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'NotAllowedError') toast('Compartilhamento cancelado.');
     else toast(`Não consegui iniciar a live: ${errorMessage(err)}.`, 'error');
@@ -517,8 +588,58 @@ export async function startLive(quality: LiveQuality, audio: boolean, motion: bo
 
 export function stopLive() {
   media?.stopLive();
-  setApp({ live: null, localScreen: null });
+  setApp({ live: null, localScreen: null, liveSurface: null, floating: false });
   sendPresence({ live: null });
+}
+
+/** Troca a tela/janela/aba com a live no ar (os espectadores continuam conectados). */
+export async function switchLiveSource(audio = getApp().settings.liveAudio) {
+  const s = getApp();
+  if (!media || !s.live) return;
+  const opts = { ...liveOptions(), audio };
+  try {
+    const capture = await media.switchLiveSource(opts);
+    const current = getApp().live;
+    if (!current) return;
+    const live = { ...current, audio: capture.hasAudio && audio };
+    if (audio !== s.settings.liveAudio) updateSettings({ liveAudio: audio });
+    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface });
+    sendPresence({ live });
+    if (audio && !capture.hasAudio) toast(audioHint(capture.surface), 'info', 8_000);
+  } catch (err) {
+    if (!(err instanceof DOMException && err.name === 'NotAllowedError')) toast(`Não consegui trocar a fonte: ${errorMessage(err)}.`, 'error');
+  }
+}
+
+/** Muda as opções da live sem encerrar (qualidade, movimento, som e efeitos). */
+export async function updateLiveOptions(patch: Partial<LiveOptions> & { effects?: boolean }) {
+  const s = getApp();
+  const settingsPatch: Partial<Settings> = {};
+  if (patch.quality) settingsPatch.liveQuality = patch.quality;
+  if (patch.motion !== undefined) settingsPatch.liveMotion = patch.motion;
+  if (patch.effects !== undefined) settingsPatch.liveEffects = patch.effects;
+  if (patch.audio !== undefined) settingsPatch.liveAudio = patch.audio;
+  updateSettings(settingsPatch);
+  if (!media || !s.live) return;
+
+  let live: LiveInfo = { ...s.live };
+  if (patch.quality || patch.motion !== undefined) {
+    const quality = patch.quality ?? s.live.quality;
+    await media.updateLive({ quality, motion: patch.motion ?? s.settings.liveMotion });
+    live.quality = quality;
+  }
+  if (patch.audio !== undefined) {
+    if (!media.setLiveAudio(patch.audio)) {
+      // a captura veio sem som: para ligar, é preciso escolher a fonte de novo com o áudio marcado
+      await switchLiveSource(true);
+      return;
+    }
+    live.audio = patch.audio;
+  }
+  if (patch.effects !== undefined) live.effects = patch.effects;
+  live = { ...live, viewers: getApp().live?.viewers ?? live.viewers };
+  setApp({ live });
+  sendPresence({ live });
 }
 
 export function watchLive(streamerId: string) {
@@ -546,11 +667,108 @@ export function unwatchLive(streamerId: string) {
 export function openLive(streamerId: string) {
   const s = getApp();
   const member = s.room?.members.find((m) => m.id === streamerId);
-  if (!member?.live || !member.voiceChannelId) return;
+  if (!member?.live) return;
   if (streamerId !== s.meId) watchLive(streamerId);
-  setApp({ callLayout: 'grid', focus: `live:${streamerId}`, memberCard: null });
-  openChannel({ kind: 'voice', channelId: member.voiceChannelId });
+  setApp({ callLayout: 'grid', focus: `live:${streamerId}`, memberCard: null, peopleOpen: false });
 }
+
+export function setLiveVolume(memberId: string, value: number) {
+  const liveVolumes = { ...getApp().liveVolumes, [baseId(memberId)]: value };
+  saveLiveVolumes(liveVolumes);
+  setApp((s) => ({ liveVolumes, liveMutes: { ...s.liveMutes, [memberId]: value === 0 } }));
+}
+
+export function toggleLiveMute(memberId: string) {
+  setApp((s) => {
+    const muted = !s.liveMutes[memberId];
+    // desmutar com o volume em 0 volta para um volume audível
+    if (!muted && (s.liveVolumes[baseId(memberId)] ?? 100) === 0) {
+      const liveVolumes = { ...s.liveVolumes, [baseId(memberId)]: 60 };
+      saveLiveVolumes(liveVolumes);
+      return { liveVolumes, liveMutes: { ...s.liveMutes, [memberId]: false } };
+    }
+    return { liveMutes: { ...s.liveMutes, [memberId]: muted } };
+  });
+}
+
+// ───────────────────────── efeitos ao vivo ─────────────────────────
+
+function onRemoteFx(from: string, streamerId: string, fx: LiveFx) {
+  const s = getApp();
+  const mine = streamerId === s.meId;
+  if (!mine && !s.watching[streamerId]) return;
+  emitFx({ streamerId, from, fx });
+  if (fx.kind === 'nudge') {
+    sfx.nudge();
+    if (mine) {
+      const who = s.room?.members.find((m) => m.id === from)?.name ?? 'Alguém';
+      toast(`📳 ${who} chamou sua atenção!`);
+      shake();
+    }
+  } else if (fx.kind === 'wink') {
+    sfx.fx();
+  }
+}
+
+/** Sacode a janela, como o "chamar atenção" do MSN. */
+function shake() {
+  const root = document.getElementById('root');
+  if (!root) return;
+  root.classList.remove('is-nudged');
+  void root.offsetWidth;
+  root.classList.add('is-nudged');
+  window.setTimeout(() => root.classList.remove('is-nudged'), 700);
+}
+
+/** Manda um efeito para a live de alguém (e mostra na hora para quem mandou). */
+export function sendFx(streamerId: string, fx: LiveFx) {
+  const s = getApp();
+  if (!session || !s.meId) return;
+  const streamer = s.room?.members.find((m) => m.id === streamerId);
+  if (!streamer?.live?.effects) return;
+  if (!allowFx(fxLimits, fx, Date.now())) {
+    if (fx.kind === 'nudge') toast('Espere uns segundos para chamar a atenção de novo.');
+    else if (fx.kind !== 'laser') toast('Calma! Muitos efeitos de uma vez.');
+    return;
+  }
+  session.send({ t: 'fx', streamerId, fx });
+  emitFx({ streamerId, from: s.meId, fx });
+  if (fx.kind === 'nudge' || fx.kind === 'wink') sfx.fx();
+}
+
+let laserSentAt = 0;
+let laserTimer = 0;
+let laserPending: { streamerId: string; x: number; y: number } | null = null;
+
+/** Laser: a posição local aparece na hora; para a rede, no máximo ~22 por segundo. */
+export function moveLaser(streamerId: string, x: number, y: number) {
+  const s = getApp();
+  if (!session || !s.meId) return;
+  emitFx({ streamerId, from: s.meId, fx: { kind: 'laser', x, y } });
+  laserPending = { streamerId, x, y };
+  const flush = () => {
+    laserTimer = 0;
+    if (!laserPending) return;
+    laserSentAt = Date.now();
+    session?.send({ t: 'fx', streamerId: laserPending.streamerId, fx: { kind: 'laser', x: laserPending.x, y: laserPending.y } });
+    laserPending = null;
+  };
+  const wait = 45 - (Date.now() - laserSentAt);
+  if (wait <= 0) flush();
+  else if (!laserTimer) laserTimer = window.setTimeout(flush, wait);
+}
+
+export function hideLaser(streamerId: string) {
+  const s = getApp();
+  clearTimeout(laserTimer);
+  laserTimer = 0;
+  laserPending = null;
+  if (!s.meId) return;
+  emitFx({ streamerId, from: s.meId, fx: { kind: 'laser-off' } });
+  session?.send({ t: 'fx', streamerId, fx: { kind: 'laser-off' } });
+}
+
+export const toggleLaser = () => setApp((s) => ({ laser: !s.laser }));
 
 // ───────────────────────── host ─────────────────────────
 
@@ -560,34 +778,54 @@ export const serverMute = (memberId: string, muted: boolean) => admin({ kind: 'm
 export const transferHost = (memberId: string) => admin({ kind: 'transfer', memberId });
 export const setLocked = (locked: boolean) => admin({ kind: 'lock', locked });
 export const renameRoom = (name: string) => admin({ kind: 'rename', name });
-export const createChannel = (name: string, type: ChannelType) => admin({ kind: 'channel:create', name, type });
-export const renameChannel = (id: string, name: string) => admin({ kind: 'channel:rename', id, name });
-export const deleteChannel = (id: string) => admin({ kind: 'channel:delete', id });
 
 // ───────────────────────── perfil e preferências ─────────────────────────
 
-export function updateProfile(patch: Partial<Omit<Profile, 'id'>>) {
-  const profile = { ...getApp().profile, ...patch };
-  saveProfile(profile);
+function applyProfile(profile: Profile) {
   setApp({ profile });
   session?.setIdentity({ name: profile.name, color: profile.color });
 }
 
-export function updateSettings(patch: Partial<Settings>) {
+export function updateProfile(patch: Partial<Omit<Profile, 'id'>>) {
+  const profile = { ...getApp().profile, ...patch };
+  saveProfile(profile);
+  applyProfile(profile);
+}
+
+/** Aplica configurações novas (daqui ou de outra janela) e reage ao que mudou. */
+function applySettings(settings: Settings) {
   const prev = getApp().settings;
-  const settings = { ...prev, ...patch };
-  saveSettings(settings);
   setApp({ settings });
   setSoundsEnabled(settings.sounds);
-  const changed = (key: keyof Settings) => key in patch && patch[key] !== prev[key];
-  if (media && (changed('audioInputId') || changed('echoCancellation') || changed('noiseSuppression') || changed('autoGainControl'))) {
+  const changed = (key: keyof Settings) => JSON.stringify(settings[key]) !== JSON.stringify(prev[key]);
+  if (media && (changed('audioInputId') || changed('echoCancellation') || changed('autoGainControl') || browserNsChanged(prev, settings))) {
     void media.refreshMic();
+  } else if (
+    media &&
+    (changed('noiseFilter') || changed('highpass') || changed('compressor') || changed('noiseGate') || changed('inputGain') || changed('vadThreshold'))
+  ) {
+    void media.updateVoice().then(() => {
+      if (changed('noiseFilter') && media?.voiceFilterFailed) toast('Não consegui carregar essa supressão de ruído.', 'error');
+    });
+  }
+  if (changed('voiceMode')) {
+    setApp({ pttDown: false });
+    media?.setMicEnabled(effectiveMic());
   }
   if (media && (changed('videoInputId') || changed('cameraQuality'))) {
     void media.refreshCamera().then((stream) => {
       if (stream) setApp({ localCamera: stream });
     });
   }
+}
+
+/** A supressão do navegador é aplicada na captura: ligar/desligar exige reabrir o microfone. */
+const browserNsChanged = (a: Settings, b: Settings) => (a.noiseFilter === 'browser') !== (b.noiseFilter === 'browser');
+
+export function updateSettings(patch: Partial<Settings>) {
+  const settings = { ...getApp().settings, ...patch };
+  saveSettings(settings);
+  applySettings(settings);
 }
 
 export function setVolume(memberId: string, value: number) {
@@ -600,17 +838,195 @@ export function toggleLocalMute(memberId: string) {
   setApp((s) => ({ localMutes: { ...s.localMutes, [memberId]: !s.localMutes[memberId] } }));
 }
 
+// ───────────────────────── atalhos ─────────────────────────
+
+/** Enquanto a tela de atalhos está gravando uma tecla, os atalhos ficam pausados. */
+let shortcutsPaused = false;
+export const pauseShortcuts = (paused: boolean) => {
+  shortcutsPaused = paused;
+};
+
+function isEditable(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
+}
+
+function runAction(action: KeyAction) {
+  const s = getApp();
+  switch (action) {
+    case 'toggleMic':
+      if (s.inCall) toggleMic();
+      return;
+    case 'toggleDeafen':
+      if (s.inCall) toggleDeafen();
+      return;
+    case 'toggleCamera':
+      if (s.inCall) void toggleCamera();
+      return;
+    case 'toggleLive':
+      if (s.inCall) setApp({ modal: s.modal?.kind === 'live' ? null : { kind: 'live' } });
+      return;
+    case 'toggleChat':
+      toggleChat();
+      return;
+    default:
+      return;
+  }
+}
+
+const TOGGLES: KeyAction[] = ['toggleMic', 'toggleDeafen', 'toggleCamera', 'toggleLive', 'toggleChat'];
+
+function onKeyDown(e: KeyboardEvent) {
+  if (!session || shortcutsPaused) return;
+  const s = getApp();
+  const binds = s.settings.keybinds;
+  const editable = isEditable(e.target);
+  const ptt = binds.pushToTalk;
+  if (ptt && !isMouseCombo(ptt) && s.settings.voiceMode === 'ptt' && sameMainKey(ptt, e.code) && (!editable || hasModifier(ptt))) {
+    if (s.pttDown || matchesKeyboard(ptt, e)) {
+      e.preventDefault();
+      setPushToTalk(true);
+      return;
+    }
+  }
+  if (e.repeat) return;
+  for (const action of TOGGLES) {
+    const combo = binds[action];
+    if (!combo || isMouseCombo(combo) || !matchesKeyboard(combo, e)) continue;
+    if (editable && !hasModifier(combo)) continue;
+    e.preventDefault();
+    runAction(action);
+    return;
+  }
+}
+
+function onKeyUp(e: KeyboardEvent) {
+  const ptt = getApp().settings.keybinds.pushToTalk;
+  if (ptt && getApp().pttDown && !isMouseCombo(ptt) && sameMainKey(ptt, e.code)) setPushToTalk(false);
+}
+
+function onMouseDown(e: MouseEvent) {
+  if (!session || shortcutsPaused) return;
+  const combo = comboFromMouse(e);
+  if (!combo) return;
+  const s = getApp();
+  const binds = s.settings.keybinds;
+  if (binds.pushToTalk && s.settings.voiceMode === 'ptt' && isMouseCombo(binds.pushToTalk) && mainKey(binds.pushToTalk) === mainKey(combo)) {
+    e.preventDefault();
+    setPushToTalk(true);
+    return;
+  }
+  for (const action of TOGGLES) {
+    if (binds[action] === combo) {
+      e.preventDefault();
+      runAction(action);
+      return;
+    }
+  }
+}
+
+function onMouseUp(e: MouseEvent) {
+  const combo = comboFromMouse(e);
+  if (!combo) return;
+  const binds = getApp().settings.keybinds;
+  const bound = Object.values(binds).some((c) => c && isMouseCombo(c) && mainKey(c) === mainKey(combo));
+  // os botões laterais voltam/avançam a página: se estão em uso como atalho, não deixa
+  if (bound) e.preventDefault();
+  if (binds.pushToTalk && isMouseCombo(binds.pushToTalk) && mainKey(binds.pushToTalk) === mainKey(combo)) setPushToTalk(false);
+}
+
+// ───────────────────────── app instalado ─────────────────────────
+
+async function handOff(code: string) {
+  setApp({ phase: 'handoff', handoff: { code, status: 'opening' } });
+  const opened = await openInApp(code);
+  if (getApp().phase !== 'handoff') return;
+  if (opened) {
+    markInstalled();
+    setApp({ handoff: { code, status: 'opened' } });
+  } else {
+    // o app provavelmente foi desinstalado: só tenta de novo quando ele rodar outra vez
+    forgetInstalled();
+    setApp({ handoff: { code, status: 'failed' } });
+  }
+}
+
+/** Botão "Abrir no app" da tela de entrega (com clique, o navegador sempre deixa). */
+export const retryHandOff = () => {
+  const code = getApp().handoff?.code;
+  if (code) void handOff(code);
+};
+
+export function continueInBrowser() {
+  const code = getApp().handoff?.code;
+  if (code) stayInBrowser(code);
+  setApp({ phase: 'landing', handoff: null, inviteCode: code ?? getApp().inviteCode });
+}
+
+/** Chegou um convite com o app já aberto. */
+function receiveInvite(code: string | null) {
+  if (!code) return;
+  const s = getApp();
+  if (session) {
+    if (s.code === code) {
+      toast('Você já está nessa órbita.');
+      return;
+    }
+    if (s.isHost && (s.room?.members.length ?? 0) > 1) {
+      toast('Passe a coroa para alguém antes de ir para outra órbita.', 'info', 5_000);
+      setApp({ modal: { kind: 'leave' } });
+      return;
+    }
+    setApp({
+      modal: {
+        kind: 'confirm',
+        title: 'Ir para outra órbita?',
+        body: `Você vai sair de “${s.room?.name ?? ''}” e entrar na órbita ${code}.`,
+        confirm: 'Trocar de órbita',
+        action: () => {
+          pendingJoin = code;
+          if (getApp().isHost) session?.endForAll();
+          else session?.leave();
+        },
+      },
+    });
+    return;
+  }
+  setApp({ inviteCode: code, phase: s.phase === 'connecting' ? s.phase : 'landing', ended: null, handoff: null });
+  history.replaceState(null, '', `#/sala/${code}`);
+}
+
 // ───────────────────────── inicialização ─────────────────────────
+
+function syncFromOtherWindow(e: StorageEvent) {
+  if (e.storageArea !== localStorage) return;
+  if (e.key === SYNCED_KEYS.profile) {
+    const profile = loadProfile();
+    const current = getApp().profile;
+    if (profile.name !== current.name || profile.color !== current.color) applyProfile(profile);
+  } else if (e.key === SYNCED_KEYS.settings) {
+    applySettings(loadSettings());
+  }
+}
 
 export function initController() {
   if (initialized) return;
   initialized = true;
   setSoundsEnabled(getApp().settings.sounds);
-  const code = inviteFromHash();
+  void loadKeyboardLayout();
+  trackInstallation();
+
+  const fromApp = cleanProtocolParam();
+  const code = fromApp ?? inviteFromHash();
   if (code) setApp({ inviteCode: code });
+  onAppLaunch((url) => receiveInvite(codeFromUrl(url)));
+  if (code && !fromApp && canHandOff() && appLikelyInstalled() && !wantsBrowser(code)) void handOff(code);
+
   window.addEventListener('hashchange', () => {
-    if (!session) setApp({ inviteCode: inviteFromHash() });
+    if (!session && getApp().phase !== 'handoff') setApp({ inviteCode: inviteFromHash() });
   });
+  window.addEventListener('storage', syncFromOtherWindow);
   window.addEventListener('pagehide', () => session?.destroyNow());
   window.addEventListener('beforeunload', (e) => {
     const s = getApp();
@@ -620,19 +1036,17 @@ export function initController() {
     }
   });
   document.addEventListener('visibilitychange', () => {
-    const view = getApp().view;
-    if (document.visibilityState === 'visible' && view?.kind === 'text' && session) openChannel(view);
+    if (document.visibilityState === 'visible' && chatVisible() && getApp().unread) setChatOpen(true);
   });
-  window.addEventListener('keydown', (e) => {
-    if (!session || !e.ctrlKey || !e.shiftKey) return;
-    if (e.code === 'KeyM') {
-      e.preventDefault();
-      toggleMic();
-    } else if (e.code === 'KeyD') {
-      e.preventDefault();
-      toggleDeafen();
-    }
-  });
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('blur', () => setPushToTalk(false));
+  // o navegador só libera áudio depois de um gesto: retoma os filtros de voz no primeiro clique/tecla
+  const resume = () => media?.resumeAudio();
+  window.addEventListener('pointerdown', resume, true);
+  window.addEventListener('keydown', resume, true);
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__orbita = { getApp, session: () => session };
   }

@@ -101,7 +101,10 @@ function StageHeader({ room, count, layout }: { room: RoomState; count: number; 
         <Users size={20} />
       </button>
       <div className="stage-header__title">
-        <h1>{room.name}</h1>
+        <h1>
+          <span className="stage-header__room">{room.name}</span>
+          <span className="stage-header__call">Chamada</span>
+        </h1>
         <span className="stage-header__sub">
           <Volume2 size={13} /> {count ? `${count} na chamada` : 'ninguém na chamada'}
         </span>

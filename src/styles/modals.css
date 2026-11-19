@@ -126,7 +126,8 @@
 .settings {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
-  min-height: min(560px, calc(100dvh - 40px));
+  /* altura fixa: trocar de aba não faz a janela pular */
+  height: min(640px, calc(100dvh - 40px));
 }
 
 .settings__nav {
@@ -174,8 +175,8 @@
   align-content: start;
   gap: 14px;
   padding: 22px 24px 26px;
+  min-height: 0;
   overflow-y: auto;
-  max-height: calc(100dvh - 40px);
 }
 
 .settings__close {
@@ -654,6 +655,7 @@
 @media (max-width: 640px) {
   .settings {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .settings__nav {

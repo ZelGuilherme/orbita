@@ -318,7 +318,8 @@ function Composer({ dropped, onDroppedHandled }: { dropped: File | null; onDropp
     const el = area.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    // com o painel escondido a altura medida é 0: deixa o CSS decidir
+    if (el.scrollHeight) el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [text]);
 
   const addFile = async (file: File) => {

@@ -54,6 +54,8 @@ export interface Settings {
   liveMotion: boolean;
   /** Aceitar efeitos e laser dos espectadores nas minhas lives. */
   liveEffects: boolean;
+  /** Codec de vídeo da live (auto = VP8). */
+  liveCodec: 'auto' | 'VP9' | 'H264' | 'AV1';
   sounds: boolean;
   network: NetworkSettings;
   keybinds: Keybinds;
@@ -100,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   liveAudio: true,
   liveMotion: true,
   liveEffects: true,
+  liveCodec: 'auto',
   sounds: true,
   network: DEFAULT_NETWORK,
   keybinds: DEFAULT_KEYBINDS,

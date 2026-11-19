@@ -180,7 +180,15 @@ async function chamadaCompleta(opened) {
   const stage = await a.page.locator('.tile--live .fx-stage').boundingBox();
   await a.page.mouse.move(stage.x + stage.width * 0.25, stage.y + stage.height * 0.5);
   await a.page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.4, { steps: 5 });
-  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-laser.is-on'), null, 10_000);
+  await waitFor(
+    b.page,
+    () => {
+      const el = document.querySelector('.tile--live .fx-laser.is-on');
+      return el && Math.abs(parseFloat(el.style.left) - 30) < 1.5 && Math.abs(parseFloat(el.style.top) - 40) < 1.5;
+    },
+    null,
+    10_000,
+  );
   const laserAt = await b.page.evaluate(() => {
     const el = document.querySelector('.tile--live .fx-laser.is-on');
     return { left: parseFloat(el.style.left), top: parseFloat(el.style.top) };

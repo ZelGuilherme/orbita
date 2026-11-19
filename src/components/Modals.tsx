@@ -52,6 +52,7 @@ import {
   reservedCombo,
   type KeyAction,
 } from '../lib/keybinds';
+import { availableCodecs } from '../lib/liveQuality';
 import { LIVE_PRESETS, type LiveSurface } from '../lib/media';
 import { parseIceServers } from '../lib/peer';
 import type { LiveQuality } from '../lib/protocol';
@@ -726,6 +727,20 @@ function LiveTab() {
         checked={settings.liveEffects}
         onChange={(liveEffects) => updateSettings({ liveEffects })}
       />
+      <label className="field">
+        <span>Codec de vídeo (avançado)</span>
+        <select value={settings.liveCodec} onChange={(e) => updateSettings({ liveCodec: e.target.value as typeof settings.liveCodec })}>
+          <option value="auto">Automático (VP8) — recomendado</option>
+          {availableCodecs()
+            .filter((c) => c !== 'VP8')
+            .map((c) => (
+              <option key={c} value={c}>
+                {c === 'H264' ? 'H.264' : c}
+              </option>
+            ))}
+        </select>
+        <span className="hint">Vale na próxima live. Codecs com aceleração por hardware gastam menos processador, mas em algumas placas de vídeo a imagem fica pior.</span>
+      </label>
     </>
   );
 }

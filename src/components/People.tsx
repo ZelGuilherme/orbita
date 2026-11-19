@@ -145,6 +145,8 @@ function PersonRow({ member, host, me, speaking }: { member: Member; host: boole
         <span className="person__status">
           {member.reconnecting ? (
             'Reconectando…'
+          ) : member.live && me ? (
+            <span className="live-text">● Você está ao vivo</span>
           ) : member.live ? (
             <span
               className="live-text"

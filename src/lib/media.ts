@@ -2,6 +2,7 @@ import type Peer from 'peerjs';
 import type { MediaConnection } from 'peerjs';
 import type { LiveQuality, Member, RoomState } from './protocol';
 import type { Settings } from './storage';
+import { tuneLiveSdp, type VideoCodec } from './liveQuality';
 import { browserNoiseSuppression, VoiceProcessor, voiceOptions } from './voice';
 
 /**
@@ -76,17 +77,21 @@ function safeClose(call: MediaConnection) {
   }
 }
 
-async function tuneSender(
-  sender: RTCRtpSender,
-  maxBitrate: number,
-  maxFramerate?: number,
-  degradation?: 'maintain-framerate' | 'maintain-resolution',
-) {
+type Degradation = 'maintain-framerate' | 'maintain-resolution' | 'balanced';
+
+async function tuneSender(sender: RTCRtpSender, maxBitrate: number, maxFramerate?: number, degradation?: Degradation, live = false) {
   try {
     const params = sender.getParameters();
     if (!params.encodings?.length) return;
-    params.encodings[0].maxBitrate = maxBitrate;
-    if (maxFramerate) params.encodings[0].maxFramerate = maxFramerate;
+    const encoding = params.encodings[0] as RTCRtpEncodingParameters & { priority?: string; networkPriority?: string };
+    encoding.maxBitrate = maxBitrate;
+    if (maxFramerate) encoding.maxFramerate = maxFramerate;
+    if (live) {
+      // a live sai na resolução escolhida (o navegador não reduz por conta própria)
+      encoding.scaleResolutionDownBy = 1;
+      encoding.priority = 'high';
+      encoding.networkPriority = 'high';
+    }
     if (degradation) (params as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = degradation;
     await sender.setParameters(params);
   } catch {
@@ -132,6 +137,8 @@ export class MediaEngine {
   /** O que vai para os espectadores: vídeo da captura + áudio da captura (ou mudo). */
   private liveSend: MediaStream | null = null;
   private liveOpts: LiveOptions = { quality: '720p', audio: true, motion: true };
+  /** Codec escolhido nas configurações (null = VP8). */
+  private liveCodec: VideoCodec | null = null;
   private destroyed = false;
 
   constructor(
@@ -437,6 +444,8 @@ export class MediaEngine {
   /** Abre o seletor do navegador e começa a live. */
   async startLive(opts: LiveOptions): Promise<LiveCapture> {
     const stream = await this.capture(opts);
+    const codec = this.settings().liveCodec;
+    this.liveCodec = codec === 'auto' ? null : codec;
     if (this.destroyed || !this.myVoice) {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error('Você saiu da chamada.');
@@ -598,7 +607,12 @@ export class MediaEngine {
     if (!peer || !stream) return;
     const viewer = this.state?.members.find((m) => m.id === viewerId && m.peerId === viewerPeerId);
     if (!viewer) return;
-    const call = peer.call(viewerPeerId, stream, { metadata: { kind: 'live' } }) as MediaConnection | undefined;
+    const bitrate = LIVE_PRESETS[this.liveOpts.quality].bitrate;
+    const codec = this.liveCodec;
+    const call = peer.call(viewerPeerId, stream, {
+      metadata: { kind: 'live', bitrate },
+      sdpTransform: (sdp: string) => tuneLiveSdp(sdp, bitrate, codec),
+    } as Parameters<Peer['call']>[2]) as MediaConnection | undefined;
     if (!call) return;
     const old = this.liveOut.get(viewerId);
     this.liveOut.set(viewerId, call);
@@ -628,7 +642,8 @@ export class MediaEngine {
     const preset = LIVE_PRESETS[this.liveOpts.quality];
     for (const sender of pc.getSenders()) {
       if (sender.track?.kind === 'video') {
-        void tuneSender(sender, preset.bitrate, preset.fps, this.liveOpts.motion ? 'maintain-framerate' : 'maintain-resolution');
+        // a resolução escolhida é mantida; com pouca banda, cai a taxa de quadros (e a nitidez)
+        void tuneSender(sender, preset.bitrate, preset.fps, 'maintain-resolution', true);
       } else if (sender.track?.kind === 'audio') {
         void tuneSender(sender, 128_000);
       }
@@ -647,7 +662,9 @@ export class MediaEngine {
     const old = this.liveIn.get(streamerId);
     this.liveIn.set(streamerId, call);
     if (old) safeClose(old);
-    call.answer(); // só recebe
+    // só recebe; a resposta também leva a taxa inicial da live (é dela que quem transmite lê)
+    const bitrate = Number((call.metadata as { bitrate?: number } | undefined)?.bitrate) || LIVE_PRESETS['720p'].bitrate;
+    call.answer(undefined, { sdpTransform: (sdp: string) => tuneLiveSdp(sdp, bitrate) });
     call.on('stream', (stream) => {
       if (this.liveIn.get(streamerId) !== call) return;
       this.liveStreams.set(streamerId, stream);

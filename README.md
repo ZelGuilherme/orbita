@@ -8,16 +8,19 @@ Chat, voz, vídeo e lives **peer-to-peer**, direto no navegador. Quem abre a sal
 
 ## O que tem
 
-- **Salas no estilo Discord**: canais de texto e de voz, criadas por quem abre a sala (o host).
+- **Uma sala = um chat + uma chamada.** A chamada fica no meio, as pessoas à esquerda e o chat à direita (dá para esconder).
 - **Convite por link ou código**, sem cadastro e sem conta. Você escolhe um nome e a cor do seu planeta.
-- **Chat**: markdown (`**negrito**`, `*itálico*`, `` `código` ``, `||spoiler||`), menções com `@`, reações, edição, imagens (colar, arrastar ou anexar), "fulano está digitando" e contador de não lidas.
-- **Voz**: detecção de fala, mutar e ensurdecer, volume por pessoa, cancelamento de eco e supressão de ruído.
+- **Chat**: markdown (`**negrito**`, `*itálico*`, `` `código` ``, `||spoiler||`), menções com `@`, reações, edição, imagens, "fulano está digitando" e contador de não lidas.
+- **Voz**: detecção de voz ou *pressionar para falar*, mutar e ensurdecer, volume por pessoa.
+- **Filtros de som**: supressão de ruído do navegador ou por IA (RNNoise e GTCRN, rodando no seu computador), portão de ruído, corte de graves, compressor e volume do microfone, com teste e "ouvir meu microfone".
+- **Atalhos editáveis** (teclado e botões laterais do mouse).
 - **Câmera** na chamada.
-- **Lives**: compartilhamento de tela com áudio até 1080p a 60 fps, contador de espectadores, picture-in-picture e tela cheia.
-- **Visão "Órbita" da chamada**: o host fica no centro com um anel dourado e os membros giram em volta, com um anel verde em quem está falando.
-- **Poderes do host**: silenciar para todos, remover, banir, trancar a sala, criar, renomear e apagar canais, passar a coroa.
-- **Migração automática de host**: se o host cair, o membro mais antigo assume e a sala continua, sem derrubar a voz.
-- **Instalável** como app (PWA).
+- **Lives**: tela inteira, janela **com o som da janela** (Chrome/Edge/Brave 141+) ou aba, até 1080p a 60 fps. O som da própria chamada nunca vaza para a live. Qualidade, som, fonte e efeitos mudam com a live no ar. Quem assiste tem volume próprio para a live.
+- **Efeitos ao vivo**: quem assiste manda reações, "chamar atenção" (a janela de quem transmite treme) e animações na tela, e aponta com um laser. Tudo aparece para quem transmite e para todo mundo assistindo. Quem transmite pode abrir uma janela flutuante, sempre por cima, para ver os efeitos durante o jogo.
+- **Visão "Órbita" da chamada**: o host fica no centro com um anel dourado e os membros giram em volta.
+- **Poderes do host**: silenciar para todos, remover, banir, trancar a sala, passar a coroa.
+- **Migração automática de host**: se o host cair, o membro mais antigo assume e a sala continua.
+- **Instalável** como app (PWA). Com o app instalado, convites abertos no navegador são entregues para o app (protocolo `web+orbita://`). O perfil é o mesmo no navegador e no app.
 
 ## Como funciona
 
@@ -42,6 +45,8 @@ Chat, voz, vídeo e lives **peer-to-peer**, direto no navegador. Quem abre a sal
 - Na live, o upload de quem transmite é dividido entre os espectadores (em 720p, cerca de 2,5 Mbps por pessoa assistindo).
 - Por padrão o app usa o servidor público do PeerJS e o TURN público do PeerJS. Para uso sério, rode os seus (veja abaixo).
 - Os navegadores de celular não transmitem a tela, mas assistem lives normalmente.
+- A barra "compartilhando esta guia" é do navegador e não some ao transmitir uma aba. Para assistir sem ela, transmita a janela do navegador com o áudio do app.
+- Os atalhos só funcionam com a janela do Órbita em foco (o navegador não deixa sites ouvirem o teclado em segundo plano).
 
 ## Rodando localmente
 

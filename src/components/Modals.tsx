@@ -376,7 +376,7 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
       </div>
       <Switch
         label="Sons da interface"
-        hint="Entrar e sair da chamada, mensagens, menções, lives e efeitos."
+        hint="Entrar e sair da chamada, mensagens, menções e lives."
         checked={settings.sounds}
         onChange={(sounds) => updateSettings({ sounds })}
       />
@@ -722,8 +722,8 @@ function LiveTab() {
         onChange={(liveMotion) => updateSettings({ liveMotion })}
       />
       <Switch
-        label="Efeitos e laser dos espectadores"
-        hint="Reações, “chamar atenção”, animações e laser por cima da sua live."
+        label="Laser e lápis dos espectadores"
+        hint="Quem assiste pode apontar e desenhar por cima da sua live."
         checked={settings.liveEffects}
         onChange={(liveEffects) => updateSettings({ liveEffects })}
       />
@@ -923,8 +923,8 @@ function LiveModal({ onClose }: { onClose: () => void }) {
         />
         <Switch label="Otimizar para movimento" hint="Jogos e vídeos. Desligue para textos e código." checked={settings.liveMotion} onChange={(liveMotion) => updateSettings({ liveMotion })} />
         <Switch
-          label="Efeitos e laser dos espectadores"
-          hint="Reações, “chamar atenção”, animações e laser por cima da live."
+          label="Laser e lápis dos espectadores"
+          hint="Quem assiste pode apontar e desenhar por cima da live."
           checked={settings.liveEffects}
           onChange={(liveEffects) => updateSettings({ liveEffects })}
         />
@@ -997,8 +997,8 @@ function LiveModal({ onClose }: { onClose: () => void }) {
       />
       <Switch label="Otimizar para movimento" hint="Jogos e vídeos. Desligue para textos e código." checked={settings.liveMotion} onChange={(motion) => void updateLiveOptions({ motion })} />
       <Switch
-        label="Efeitos e laser dos espectadores"
-        hint="Reações, “chamar atenção”, animações e laser por cima da live."
+        label="Laser e lápis dos espectadores"
+        hint="Quem assiste pode apontar e desenhar por cima da live."
         checked={live.effects}
         onChange={(effects) => void updateLiveOptions({ effects })}
       />

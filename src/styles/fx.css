@@ -1,4 +1,4 @@
-/* ───────── efeitos ao vivo (por cima da live) ───────── */
+/* ───────── laser e lápis (por cima da live) ───────── */
 
 .tile {
   container-type: inline-size;
@@ -15,7 +15,9 @@
 .fx-stage {
   position: absolute;
   overflow: hidden;
+  container-type: size;
   pointer-events: none;
+  touch-action: none;
 }
 
 .fx-stage.is-laser {
@@ -23,59 +25,42 @@
   cursor: crosshair;
 }
 
-/* "chamar atenção": a live (ou a janela inteira de quem transmite) treme */
-@keyframes fx-shake {
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-  10% {
-    transform: translate(-10px, 3px) rotate(-0.6deg);
-  }
-  20% {
-    transform: translate(9px, -4px) rotate(0.6deg);
-  }
-  30% {
-    transform: translate(-8px, 2px);
-  }
-  40% {
-    transform: translate(7px, 3px);
-  }
-  50% {
-    transform: translate(-6px, -2px);
-  }
-  60% {
-    transform: translate(5px, 2px);
-  }
-  70% {
-    transform: translate(-3px, -1px);
-  }
-  80% {
-    transform: translate(2px, 1px);
-  }
+.fx-stage.is-pencil {
+  pointer-events: auto;
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='white' stroke='black' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M21.2 6.8a2.8 2.8 0 0 0-4-4L3.8 16.2 2.5 21.5l5.3-1.3z'/%3E%3C/svg%3E")
+      2 21,
+    crosshair;
 }
 
-.tile:has(> .fx-layer.is-shaking),
-#root.is-nudged {
-  animation: fx-shake 0.62s ease-in-out;
+/* desenhos */
+.fx-draw {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-/* laser */
+.fx-draw path {
+  fill: none;
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.7));
+}
+
+/* laser: posição pelo transform, quadro a quadro (sem transição atrasando) */
 .fx-laser {
   --c: #f43f5e;
   position: absolute;
   z-index: 3;
+  left: 0;
+  top: 0;
   width: 0;
   height: 0;
-  opacity: 0;
-  transition:
-    left 0.06s linear,
-    top 0.06s linear,
-    opacity 0.2s;
-}
-
-.fx-laser.is-on {
-  opacity: 1;
+  will-change: transform;
 }
 
 .fx-laser i {
@@ -89,7 +74,6 @@
   box-shadow:
     0 0 12px 4px var(--c),
     0 0 30px 10px color-mix(in srgb, var(--c) 40%, transparent);
-  animation: fx-laser-pulse 1s ease-in-out infinite alternate;
 }
 
 .fx-laser span {
@@ -105,418 +89,7 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-@keyframes fx-laser-pulse {
-  to {
-    transform: scale(1.18);
-  }
-}
-
-/* quem mandou */
-.fx-credits {
-  position: absolute;
-  z-index: 4;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-}
-
-.fx-credit {
-  padding: 5px 12px;
-  border-radius: 99px;
-  background: rgba(5, 6, 15, 0.8);
-  border: 1px solid var(--line-2);
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-  animation: fx-credit 2.6s ease forwards;
-}
-
-@keyframes fx-credit {
-  0% {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  10%,
-  85% {
-    opacity: 1;
-    transform: none;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-/* reações subindo */
-.fx-reaction {
-  --sway: 12px;
-  position: absolute;
-  bottom: 4%;
-  display: grid;
-  justify-items: center;
-  font-size: clamp(26px, 6cqi, 46px);
-  line-height: 1;
-  animation: fx-float 2.8s ease-out forwards;
-}
-
-.fx-reaction small {
-  margin-top: 3px;
-  padding: 0 6px;
-  border-radius: 6px;
-  background: rgba(5, 6, 15, 0.65);
-  color: #fff;
-  font: 700 10px/1.6 var(--font);
-  white-space: nowrap;
-}
-
-@keyframes fx-float {
-  0% {
-    bottom: 2%;
-    opacity: 0;
-    transform: translateX(0) scale(0.5);
-  }
-  12% {
-    opacity: 1;
-    transform: translateX(0) scale(1.15);
-  }
-  50% {
-    transform: translateX(var(--sway)) scale(1);
-  }
-  100% {
-    bottom: 72%;
-    opacity: 0;
-    transform: translateX(calc(var(--sway) * -1)) scale(0.9);
-  }
-}
-
-/* disco voador */
-.fx-ufo {
-  position: absolute;
-  left: -16%;
-  animation: fx-ufo 3.4s ease-in-out forwards;
-}
-
-.fx-ufo__ship {
-  position: relative;
-  z-index: 1;
-  display: block;
-  font-size: clamp(42px, 11cqi, 90px);
-  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.55));
-  animation: fx-bob 0.6s ease-in-out infinite alternate;
-}
-
-.fx-ufo__beam {
-  position: absolute;
-  left: 50%;
-  top: 72%;
-  width: 90%;
-  height: 260%;
-  transform: translateX(-50%);
-  background: linear-gradient(rgba(165, 243, 252, 0.6), transparent);
-  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
-  opacity: 0;
-  animation: fx-beam 3.4s ease-in-out forwards;
-}
-
-@keyframes fx-ufo {
-  0% {
-    left: -16%;
-  }
-  40% {
-    left: 41%;
-  }
-  62% {
-    left: 45%;
-  }
-  100% {
-    left: 116%;
-  }
-}
-
-@keyframes fx-beam {
-  0%,
-  36% {
-    opacity: 0;
-  }
-  44%,
-  60% {
-    opacity: 1;
-  }
-  70%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes fx-bob {
-  to {
-    transform: translateY(-8px) rotate(-4deg);
-  }
-}
-
-/* foguete */
-.fx-rocket {
-  position: absolute;
-  bottom: -18%;
-  font-size: clamp(36px, 9cqi, 76px);
-  animation: fx-rocket 2.6s cubic-bezier(0.5, 0, 0.75, 0) forwards;
-}
-
-.fx-rocket span {
-  position: relative;
-  z-index: 1;
-  display: block;
-  transform: rotate(-45deg);
-}
-
-.fx-rocket i {
-  position: absolute;
-  left: 50%;
-  top: 78%;
-  width: 0.28em;
-  height: 2.6em;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: linear-gradient(rgba(251, 191, 36, 0.95), rgba(244, 63, 94, 0.55), transparent);
-  filter: blur(3px);
-}
-
-@keyframes fx-rocket {
-  0% {
-    bottom: -18%;
-  }
-  18% {
-    bottom: -4%;
-  }
-  100% {
-    bottom: 125%;
-  }
-}
-
-/* chuva de meteoros */
-.fx-meteor {
-  position: absolute;
-  font-size: clamp(24px, 6cqi, 46px);
-  opacity: 0;
-  animation: fx-meteor 1.5s ease-in forwards;
-}
-
-@keyframes fx-meteor {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0);
-  }
-  12% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-40cqi, 40cqi);
-  }
-}
-
-/* confete */
-.fx-confetti {
-  --spin: 540deg;
-  --drift: 0px;
-  position: absolute;
-  top: -6%;
-  width: 8px;
-  height: 14px;
-  border-radius: 2px;
-  opacity: 0;
-  animation-name: fx-confetti;
-  animation-timing-function: cubic-bezier(0.25, 0.6, 0.5, 1);
-  animation-fill-mode: forwards;
-}
-
-@keyframes fx-confetti {
-  0% {
-    top: -6%;
-    opacity: 1;
-    transform: translateX(0) rotate(0);
-  }
-  100% {
-    top: 106%;
-    opacity: 0.9;
-    transform: translateX(var(--drift)) rotate(var(--spin));
-  }
-}
-
-/* corações */
-.fx-heart {
-  --drift: 0px;
-  position: absolute;
-  bottom: -12%;
-  opacity: 0;
-  animation: fx-heart 2.4s ease-out forwards;
-}
-
-@keyframes fx-heart {
-  0% {
-    bottom: -12%;
-    opacity: 0;
-    transform: translateX(0) scale(0.6);
-  }
-  15% {
-    opacity: 1;
-  }
-  100% {
-    bottom: 96%;
-    opacity: 0;
-    transform: translateX(var(--drift)) scale(1.1);
-  }
-}
-
-/* explosão */
-.fx-boom {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  transform: translate(-50%, -50%);
-}
-
-.fx-boom__icon {
-  font-size: clamp(64px, 18cqi, 160px);
-  animation: fx-boom 1.8s cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
-}
-
-.fx-boom__text {
-  position: absolute;
-  top: 72%;
-  font: 900 clamp(22px, 6cqi, 50px) / 1 var(--font-display);
-  letter-spacing: 0.04em;
-  color: #fde047;
-  -webkit-text-stroke: 2px #7c2d12;
-  paint-order: stroke fill;
-  opacity: 0;
-  animation: fx-boom-text 1.8s ease forwards;
-}
-
-.fx-boom__ring {
-  position: absolute;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 4px solid rgba(253, 224, 71, 0.9);
-  animation: fx-ring 0.9s ease-out forwards;
-}
-
-@keyframes fx-boom {
-  0% {
-    transform: scale(0) rotate(-20deg);
-  }
-  28% {
-    transform: scale(1.3) rotate(6deg);
-  }
-  70% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.1);
-  }
-}
-
-@keyframes fx-boom-text {
-  0%,
-  15% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  30% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-  80% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes fx-ring {
-  from {
-    opacity: 1;
-    transform: scale(0.4);
-  }
-  to {
-    opacity: 0;
-    transform: scale(10);
-  }
-}
-
-/* beijo */
-.fx-kiss {
-  position: absolute;
-  font-size: clamp(54px, 14cqi, 130px);
-  animation: fx-kiss 2.4s ease forwards;
-}
-
-@keyframes fx-kiss {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(2.6) rotate(-12deg);
-  }
-  18% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(0.9) rotate(4deg);
-  }
-  26% {
-    transform: translate(-50%, -50%) scale(1.05) rotate(0);
-  }
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
-/* neve */
-.fx-snow {
-  --drift: 0px;
-  position: absolute;
-  top: -6%;
-  color: #e0f2fe;
-  text-shadow: 0 0 6px rgba(186, 230, 253, 0.85);
-  opacity: 0;
-  animation-name: fx-snow;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-
-@keyframes fx-snow {
-  0% {
-    top: -6%;
-    opacity: 0;
-    transform: translateX(0) rotate(0);
-  }
-  10%,
-  88% {
-    opacity: 1;
-  }
-  100% {
-    top: 104%;
-    opacity: 0;
-    transform: translateX(var(--drift)) rotate(200deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tile:has(> .fx-layer.is-shaking),
-  #root.is-nudged {
-    animation: none;
-  }
-}
-
-/* ───────── barra de efeitos ───────── */
+/* ───────── ferramentas ───────── */
 
 .fx-bar {
   position: absolute;
@@ -552,107 +125,55 @@
   display: none;
 }
 
-.fx-bar__emoji {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  font-size: 19px;
-  transition:
-    transform 0.1s,
-    background 0.1s;
-}
-
-.fx-bar__emoji:hover {
-  background: var(--bg-4);
-  transform: translateY(-2px) scale(1.12);
-}
-
-.fx-bar__emoji:active {
-  transform: scale(0.92);
-}
-
 .fx-bar__btn {
   position: relative;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 9px;
   color: var(--text-2);
 }
 
-.fx-bar__btn:hover,
-.fx-bar__btn.is-on {
+.fx-bar__btn:hover:not(:disabled) {
   background: var(--bg-4);
   color: var(--text);
 }
 
-.fx-bar__btn.is-laser {
+.fx-bar__btn.is-on {
   background: var(--live);
   color: #fff;
 }
 
-.fx-bar__sep {
-  width: 1px;
-  height: 22px;
-  margin: 0 4px;
-  background: var(--line-2);
-}
-
-.fx-bar__menu {
-  position: relative;
-}
-
-.fx-winks {
+/* dica da janela flutuante para quem transmite */
+.float-tip {
   position: absolute;
-  bottom: 44px;
+  z-index: 9;
   left: 50%;
+  bottom: 12px;
   transform: translateX(-50%);
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  width: 290px;
-  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 8px 8px 14px;
   border-radius: 12px;
   background: var(--bg-1);
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow);
-  animation: pop 0.12s ease-out;
-}
-
-.fx-winks button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: 8px;
   font-size: 13.5px;
-  text-align: left;
   color: var(--text-2);
 }
 
-.fx-winks button span {
-  font-size: 20px;
+.float-tip span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.fx-winks button:hover {
-  background: var(--bg-4);
-  color: var(--text);
-}
-
-/* em lives estreitas, menos emojis na barra */
-@container (max-width: 560px) {
-  .fx-bar__emoji:nth-child(n + 5) {
-    display: none;
-  }
-}
-
-@container (max-width: 380px) {
-  .fx-bar__emoji {
-    display: none;
-  }
-
-  .fx-bar__sep {
+@container (max-width: 620px) {
+  .float-tip span {
     display: none;
   }
 }

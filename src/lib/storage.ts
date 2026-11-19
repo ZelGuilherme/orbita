@@ -52,7 +52,7 @@ export interface Settings {
   liveQuality: LiveQuality;
   liveAudio: boolean;
   liveMotion: boolean;
-  /** Aceitar efeitos e laser dos espectadores nas minhas lives. */
+  /** Aceitar laser e lápis dos espectadores nas minhas lives. */
   liveEffects: boolean;
   /** Codec de vídeo da live (auto = VP8). */
   liveCodec: 'auto' | 'VP9' | 'H264' | 'AV1';
@@ -64,6 +64,7 @@ export interface Settings {
 /** Preferências da interface (só deste navegador). */
 export interface UiPrefs {
   chatOpen: boolean;
+  chatWidth: number | null;
 }
 
 const PROFILE_KEY = 'orbita.profile.v1';
@@ -194,7 +195,8 @@ export function loadUiPrefs(): UiPrefs {
   const saved = read<UiPrefs>(UI_KEY);
   // no celular o chat cobre a chamada: começa fechado
   const wide = typeof window === 'undefined' || window.innerWidth > 760;
-  return { chatOpen: saved ? saved.chatOpen !== false : wide };
+  const width = Number(saved?.chatWidth);
+  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null };
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);

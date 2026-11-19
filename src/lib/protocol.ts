@@ -24,23 +24,26 @@ export interface LiveInfo {
   quality: LiveQuality;
   audio: boolean;
   viewers: number;
-  /** Quem transmite aceita efeitos e laser dos espectadores. */
+  /** Quem transmite aceita laser e lápis dos espectadores. */
   effects: boolean;
 }
 
-/** Animações grandes que os espectadores mandam para a live (no espírito dos "winks" do MSN). */
-export type FxWink = 'ufo' | 'rocket' | 'confetti' | 'boom' | 'hearts' | 'snow' | 'kiss' | 'meteor';
+/** Um traço do lápis: pontos [x, y, x, y, …] de 0 a 1 dentro da imagem da live. */
+export interface FxStroke {
+  id: string;
+  from: string;
+  points: number[];
+}
 
 /**
- * Efeitos ao vivo: aparecem por cima da live para todo mundo que assiste e para quem
- * transmite. O laser usa coordenadas de 0 a 1 dentro da imagem da live.
+ * Laser e lápis por cima da live: aparecem para todo mundo que assiste e para quem
+ * transmite. Um traço chega em pedaços enquanto a pessoa desenha (mesmo id).
  */
 export type LiveFx =
-  | { kind: 'reaction'; emoji: string }
-  | { kind: 'nudge' }
-  | { kind: 'wink'; wink: FxWink }
   | { kind: 'laser'; x: number; y: number }
-  | { kind: 'laser-off' };
+  | { kind: 'laser-off' }
+  | { kind: 'stroke'; id: string; points: number[] }
+  | { kind: 'clear' };
 
 /** Estado que cada participante publica sobre si mesmo. */
 export interface Presence {
@@ -151,6 +154,7 @@ export type HubMsg =
   | { t: 'speaking'; memberId: string; on: boolean }
   | { t: 'live:viewer'; viewerId: string; viewerPeerId: string; on: boolean }
   | { t: 'fx'; from: string; streamerId: string; fx: LiveFx }
+  | { t: 'fx:sync'; streamerId: string; strokes: FxStroke[] }
   | { t: 'ping' }
   | { t: 'kicked'; ban: boolean }
   | { t: 'ended' }

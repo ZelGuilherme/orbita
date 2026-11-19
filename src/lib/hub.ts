@@ -14,13 +14,14 @@ import {
   REACTIONS,
   RECONNECT_GRACE_MS,
 } from './config';
-import { allowFx, validFx, type FxLimits } from './fx';
+import { addToStrokes, allowFx, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
 import type {
   AdminAction,
   Attachment,
   ChatMessage,
   ClientMsg,
+  FxStroke,
   HubMsg,
   LiveInfo,
   LiveQuality,
@@ -102,6 +103,8 @@ export class Hub {
   private graceTimers = new Map<string, number>();
   private heartbeat = 0;
   private fxLimits = new Map<string, FxLimits>();
+  /** Desenhos do lápis em cada live, para quem começar a assistir depois. */
+  private drawings = new Map<string, FxStroke[]>();
   private statePending = false;
   private stopped = false;
 
@@ -237,6 +240,7 @@ export class Hub {
     this.graceTimers.delete(id);
     this.state.members = this.state.members.filter((m) => m.id !== id);
     this.fxLimits.delete(id);
+    this.drawings.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
     this.pushState();
   }
@@ -289,6 +293,7 @@ export class Hub {
         return;
       case 'presence':
         this.applyPresence(me, msg.presence);
+        if (!me.live) this.drawings.delete(me.id);
         this.pushState();
         return;
       case 'profile':
@@ -301,8 +306,15 @@ export class Hub {
         const fx = validFx(msg.fx);
         if (!streamer?.live || !streamer.live.effects || !fx) return;
         let limits = this.fxLimits.get(me.id);
-        if (!limits) this.fxLimits.set(me.id, (limits = { laser: [], fx: [], nudge: 0 }));
+        if (!limits) this.fxLimits.set(me.id, (limits = newFxLimits()));
         if (!allowFx(limits, fx, Date.now())) return;
+        if (fx.kind === 'stroke') {
+          let strokes = this.drawings.get(streamer.id);
+          if (!strokes) this.drawings.set(streamer.id, (strokes = []));
+          if (!addToStrokes(strokes, me.id, fx.id, fx.points)) return;
+        } else if (fx.kind === 'clear') {
+          this.drawings.delete(streamer.id);
+        }
         this.broadcast({ t: 'fx', from: me.id, streamerId: streamer.id, fx }, me.id);
         return;
       }
@@ -310,6 +322,9 @@ export class Hub {
         const streamer = typeof msg.streamerId === 'string' ? this.byMember.get(msg.streamerId) : undefined;
         if (streamer && msg.streamerId !== me.id) {
           streamer.wire.send({ t: 'live:viewer', viewerId: me.id, viewerPeerId: me.peerId, on: !!msg.on } satisfies HubMsg);
+          // quem começa a assistir recebe o que já está desenhado
+          const strokes = this.drawings.get(msg.streamerId);
+          if (msg.on && strokes?.length) client.wire.send({ t: 'fx:sync', streamerId: msg.streamerId, strokes } satisfies HubMsg);
         }
         return;
       }

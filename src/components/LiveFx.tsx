@@ -1,27 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { BellRing, Crosshair, Sparkles } from 'lucide-react';
-import { hideLaser, moveLaser, sendFx, toggleLaser } from '../controller';
-import { FX_REACTIONS, FX_WINKS, onFx, type FxEvent } from '../lib/fx';
-import type { FxWink, Member } from '../lib/protocol';
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { Crosshair, Eraser, Pencil } from 'lucide-react';
+import { beginStroke, clearDrawings, endStroke, extendStroke, hideLaser, moveLaser, setTool } from '../controller';
+import { onDrawing, onFx, strokesOf } from '../lib/fx';
+import type { Member } from '../lib/protocol';
 import { useApp } from '../store';
 import { cx } from './ui';
 
 /**
- * Camada de efeitos por cima da live: reações, animações ("winks"), "chamar atenção" e lasers.
- * Fica alinhada com a imagem do vídeo (sem as faixas pretas), então um laser em (0,5; 0,5)
- * aponta para o mesmo lugar na tela de todo mundo.
+ * Laser e lápis por cima da live. A camada fica alinhada com a imagem do vídeo (sem as
+ * faixas pretas), então um ponto em (0,5; 0,5) é o mesmo lugar na tela de todo mundo.
  */
-
-interface Burst {
-  id: number;
-  kind: 'reaction' | 'wink' | 'credit';
-  from: string;
-  emoji?: string;
-  wink?: FxWink;
-  text?: string;
-  x: number;
-  until: number;
-}
 
 interface Box {
   left: number;
@@ -30,18 +18,15 @@ interface Box {
   height: number;
 }
 
-const WINK_MS: Record<FxWink, number> = {
-  ufo: 3_400,
-  rocket: 2_600,
-  meteor: 3_000,
-  confetti: 3_400,
-  hearts: 3_000,
-  boom: 1_800,
-  kiss: 2_400,
-  snow: 4_600,
-};
-
-let burstId = 0;
+interface Laser {
+  el: HTMLDivElement;
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  at: number;
+  own: boolean;
+}
 
 /** Retângulo da imagem dentro do elemento (object-fit: contain). */
 function contentBox(video: HTMLVideoElement | null, width: number, height: number): Box {
@@ -54,30 +39,34 @@ function contentBox(video: HTMLVideoElement | null, width: number, height: numbe
   return { left: (width - w) / 2, top: (height - h) / 2, width: w, height: h };
 }
 
-/** Pseudoaleatório estável por índice, para as partículas não pularem a cada render. */
-const rand = (seed: number, i: number) => {
-  const x = Math.sin(seed * 9301 + i * 49297) * 233280;
-  return x - Math.floor(x);
-};
+function pathOf(points: number[]): string {
+  let d = '';
+  for (let i = 0; i < points.length; i += 2) d += `${i ? 'L' : 'M'}${points[i]} ${points[i + 1]}`;
+  // um clique só vira um pontinho
+  if (points.length === 2) d += `L${points[0] + 0.0001} ${points[1]}`;
+  return d;
+}
 
 export function FxLayer({
   streamerId,
   videoRef,
   members,
-  interactive,
+  tool,
 }: {
   streamerId: string;
   videoRef: RefObject<HTMLVideoElement | null>;
   members: Member[];
-  /** Laser ligado: o mouse em cima da imagem aponta. */
-  interactive: boolean;
+  /** Ferramenta ativa nesta tela (null = só mostra). */
+  tool: 'laser' | 'pencil' | null;
 }) {
   const layer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
-  const lasers = useRef(new Map<string, { el: HTMLDivElement; at: number }>());
+  const lasers = useRef(new Map<string, Laser>());
+  const raf = useRef(0);
+  const drawing = useRef(false);
+  const meId = useApp((s) => s.meId);
   const [box, setBox] = useState<Box>({ left: 0, top: 0, width: 0, height: 0 });
-  const [bursts, setBursts] = useState<Burst[]>([]);
-  const [shaking, setShaking] = useState(0);
+  const [strokes, setStrokes] = useState(() => [...strokesOf(streamerId)]);
   const membersRef = useRef(members);
   membersRef.current = members;
 
@@ -111,15 +100,51 @@ export function FxLayer({
     };
   }, [videoRef]);
 
-  // recebe os efeitos desta live
+  // desenhos do lápis
   useEffect(() => {
-    const nameOf = (id: string) => membersRef.current.find((m) => m.id === id);
-    const placeLaser = (event: FxEvent, x: number, y: number) => {
-      const host = stage.current;
-      if (!host) return;
-      let entry = lasers.current.get(event.from);
-      if (!entry) {
-        const who = nameOf(event.from);
+    setStrokes([...strokesOf(streamerId)]);
+    return onDrawing((id) => {
+      if (id === streamerId) setStrokes([...strokesOf(streamerId)]);
+    });
+  }, [streamerId]);
+
+  // lasers: posição nova a cada mensagem, desenhada quadro a quadro
+  useEffect(() => {
+    const current = lasers.current;
+    const frame = () => {
+      raf.current = 0;
+      const now = performance.now();
+      for (const [from, l] of current) {
+        if (now - l.at > 2_500) {
+          remove(from);
+          continue;
+        }
+        // o próprio laser fica colado no cursor; o dos outros desliza um pouco entre mensagens
+        l.x = l.own ? l.tx : l.x + (l.tx - l.x) * 0.6;
+        l.y = l.own ? l.ty : l.y + (l.ty - l.y) * 0.6;
+        l.el.style.transform = `translate(${(l.x * 100).toFixed(3)}cqw, ${(l.y * 100).toFixed(3)}cqh)`;
+      }
+      if (current.size) raf.current = requestAnimationFrame(frame);
+    };
+    const kick = () => {
+      if (!raf.current) raf.current = requestAnimationFrame(frame);
+    };
+    const remove = (from: string) => {
+      const l = current.get(from);
+      if (!l) return;
+      current.delete(from);
+      l.el.remove();
+    };
+    const off = onFx((event) => {
+      if (event.streamerId !== streamerId) return;
+      if (event.fx.kind === 'laser-off') {
+        remove(event.from);
+        return;
+      }
+      if (event.fx.kind !== 'laser' || !stage.current) return;
+      let l = current.get(event.from);
+      if (!l) {
+        const who = membersRef.current.find((m) => m.id === event.from);
         const el = document.createElement('div');
         el.className = 'fx-laser';
         el.style.setProperty('--c', who?.color ?? '#f43f5e');
@@ -127,294 +152,126 @@ export function FxLayer({
         const label = document.createElement('span');
         label.textContent = who?.name ?? '';
         el.append(dot, label);
-        host.append(el);
-        entry = { el, at: 0 };
-        lasers.current.set(event.from, entry);
+        stage.current.append(el);
+        l = { el, x: event.fx.x, y: event.fx.y, tx: event.fx.x, ty: event.fx.y, at: 0, own: event.from === meId };
+        current.set(event.from, l);
       }
-      entry.at = performance.now();
-      entry.el.style.left = `${(x * 100).toFixed(2)}%`;
-      entry.el.style.top = `${(y * 100).toFixed(2)}%`;
-      entry.el.classList.add('is-on');
-    };
-    const removeLaser = (from: string) => {
-      const entry = lasers.current.get(from);
-      if (!entry) return;
-      lasers.current.delete(from);
-      entry.el.classList.remove('is-on');
-      window.setTimeout(() => entry.el.remove(), 250);
-    };
-    const add = (burst: Omit<Burst, 'id'>) => setBursts((list) => [...list.filter((b) => b.until > Date.now()), { ...burst, id: ++burstId }].slice(-40));
-
-    const off = onFx((event) => {
-      if (event.streamerId !== streamerId) return;
-      const { fx } = event;
-      const who = nameOf(event.from)?.name ?? 'Alguém';
-      if (fx.kind === 'laser') placeLaser(event, fx.x, fx.y);
-      else if (fx.kind === 'laser-off') removeLaser(event.from);
-      else if (fx.kind === 'reaction') add({ kind: 'reaction', from: who, emoji: fx.emoji, x: 8 + Math.random() * 84, until: Date.now() + 2_800 });
-      else if (fx.kind === 'wink') {
-        const icon = FX_WINKS.find((w) => w.id === fx.wink)?.icon ?? '✨';
-        add({ kind: 'wink', from: who, wink: fx.wink, x: 15 + Math.random() * 70, until: Date.now() + WINK_MS[fx.wink] });
-        add({ kind: 'credit', from: who, text: `${icon} ${who}`, x: 0, until: Date.now() + 2_600 });
-      } else if (fx.kind === 'nudge') {
-        setShaking(Date.now());
-        add({ kind: 'credit', from: who, text: `📳 ${who} chamou atenção!`, x: 0, until: Date.now() + 2_600 });
-      }
+      l.tx = event.fx.x;
+      l.ty = event.fx.y;
+      l.at = performance.now();
+      kick();
     });
-    // lasers parados somem sozinhos (a pessoa pode ter fechado a aba)
-    const sweep = window.setInterval(() => {
-      const now = performance.now();
-      for (const [from, entry] of lasers.current) if (now - entry.at > 2_500) removeLaser(from);
-      setBursts((list) => (list.some((b) => b.until <= Date.now()) ? list.filter((b) => b.until > Date.now()) : list));
-    }, 500);
-    const current = lasers.current;
     return () => {
       off();
-      clearInterval(sweep);
-      for (const entry of current.values()) entry.el.remove();
+      cancelAnimationFrame(raf.current);
+      raf.current = 0;
+      for (const l of current.values()) l.el.remove();
       current.clear();
     };
-  }, [streamerId]);
+  }, [streamerId, meId]);
 
-  useEffect(() => {
-    if (!shaking) return;
-    const timer = window.setTimeout(() => setShaking(0), 650);
-    return () => clearTimeout(timer);
-  }, [shaking]);
-
-  const pointer = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!interactive) return;
+  const pointOf = (e: ReactPointerEvent<HTMLDivElement>): [number, number] | null => {
     const rect = e.currentTarget.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    if (!rect.width || !rect.height) return null;
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    moveLaser(streamerId, x, y);
+    return [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))];
   };
 
+  const onDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!tool) return;
+    e.stopPropagation();
+    const p = pointOf(e);
+    if (!p) return;
+    if (tool === 'pencil') {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      drawing.current = true;
+      beginStroke(streamerId, p[0], p[1]);
+    } else {
+      moveLaser(streamerId, p[0], p[1]);
+    }
+  };
+
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!tool) return;
+    const p = pointOf(e);
+    if (!p) return;
+    if (tool === 'laser') moveLaser(streamerId, p[0], p[1]);
+    else if (drawing.current) extendStroke(p[0], p[1]);
+  };
+
+  const onUp = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    endStroke();
+  };
+
+  const colorOf = (id: string) => members.find((m) => m.id === id)?.color ?? '#f43f5e';
+
   return (
-    <div ref={layer} className={cx('fx-layer', shaking > 0 && 'is-shaking')} aria-hidden={!interactive}>
+    <div ref={layer} className="fx-layer">
       <div
         ref={stage}
-        className={cx('fx-stage', interactive && 'is-laser')}
+        className={cx('fx-stage', tool && `is-${tool}`)}
         style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
-        onPointerMove={pointer}
-        onPointerDown={(e) => {
-          if (!interactive) return;
-          e.stopPropagation();
-          pointer(e);
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onPointerLeave={() => {
+          if (tool === 'laser') hideLaser(streamerId);
         }}
-        onPointerLeave={() => interactive && hideLaser(streamerId)}
-        onClick={(e) => interactive && e.stopPropagation()}
-        onDoubleClick={(e) => interactive && e.stopPropagation()}
+        onClick={(e) => tool && e.stopPropagation()}
+        onDoubleClick={(e) => tool && e.stopPropagation()}
       >
-        {bursts
-          .filter((b) => b.kind !== 'credit')
-          .map((b) => (
-            <BurstView key={b.id} burst={b} />
+        <svg className="fx-draw" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+          {strokes.map((s) => (
+            <path key={`${s.from}:${s.id}`} d={pathOf(s.points)} stroke={colorOf(s.from)} />
           ))}
-        <div className="fx-credits">
-          {bursts
-            .filter((b) => b.kind === 'credit')
-            .slice(-3)
-            .map((b) => (
-              <div key={b.id} className="fx-credit">
-                {b.text}
-              </div>
-            ))}
-        </div>
+        </svg>
       </div>
     </div>
   );
 }
 
-function BurstView({ burst }: { burst: Burst }) {
-  if (burst.kind === 'reaction') {
-    return (
-      <span className="fx-reaction" style={{ left: `${burst.x}%`, '--sway': `${(burst.id % 2 ? 1 : -1) * (10 + (burst.id % 5) * 4)}px` } as CSSProperties}>
-        {burst.emoji}
-        <small>{burst.from}</small>
-      </span>
-    );
-  }
-  return <Wink wink={burst.wink ?? 'confetti'} seed={burst.id} x={burst.x} />;
-}
-
-function Wink({ wink, seed, x }: { wink: FxWink; seed: number; x: number }) {
-  switch (wink) {
-    case 'ufo':
-      return (
-        <div className="fx-ufo" style={{ top: `${18 + rand(seed, 1) * 30}%` }}>
-          <span className="fx-ufo__ship">🛸</span>
-          <span className="fx-ufo__beam" />
-        </div>
-      );
-    case 'rocket':
-      return (
-        <div className="fx-rocket" style={{ left: `${x}%` }}>
-          <span>🚀</span>
-          <i />
-        </div>
-      );
-    case 'meteor':
-      return (
-        <>
-          {Array.from({ length: 7 }, (_, i) => (
-            <span
-              key={i}
-              className="fx-meteor"
-              style={{ left: `${10 + rand(seed, i) * 90}%`, top: `${-10 + rand(seed, i + 9) * 40}%`, animationDelay: `${i * 0.28}s` }}
-            >
-              ☄️
-            </span>
-          ))}
-        </>
-      );
-    case 'confetti':
-      return (
-        <>
-          {Array.from({ length: 46 }, (_, i) => (
-            <i
-              key={i}
-              className="fx-confetti"
-              style={
-                {
-                  left: `${rand(seed, i) * 100}%`,
-                  background: ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#34d399', '#fb923c'][i % 6],
-                  animationDelay: `${rand(seed, i + 50) * 0.7}s`,
-                  animationDuration: `${2 + rand(seed, i + 99) * 1.2}s`,
-                  '--spin': `${360 + rand(seed, i + 7) * 720}deg`,
-                  '--drift': `${(rand(seed, i + 3) - 0.5) * 120}px`,
-                } as CSSProperties
-              }
-            />
-          ))}
-        </>
-      );
-    case 'hearts':
-      return (
-        <>
-          {Array.from({ length: 16 }, (_, i) => (
-            <span
-              key={i}
-              className="fx-heart"
-              style={
-                {
-                  left: `${x - 12 + rand(seed, i) * 24}%`,
-                  animationDelay: `${rand(seed, i + 20) * 0.9}s`,
-                  fontSize: `${22 + rand(seed, i + 40) * 26}px`,
-                  '--drift': `${(rand(seed, i + 60) - 0.5) * 220}px`,
-                } as CSSProperties
-              }
-            >
-              {['💖', '💜', '💙', '❤️'][i % 4]}
-            </span>
-          ))}
-        </>
-      );
-    case 'boom':
-      return (
-        <div className="fx-boom" style={{ left: `${x}%`, top: `${30 + rand(seed, 2) * 40}%` }}>
-          <i className="fx-boom__ring" />
-          <span className="fx-boom__icon">💥</span>
-          <b className="fx-boom__text">BOOM!</b>
-        </div>
-      );
-    case 'kiss':
-      return (
-        <div className="fx-kiss" style={{ left: `${x}%`, top: `${25 + rand(seed, 4) * 50}%` }}>
-          💋
-        </div>
-      );
-    case 'snow':
-      return (
-        <>
-          {Array.from({ length: 34 }, (_, i) => (
-            <span
-              key={i}
-              className="fx-snow"
-              style={
-                {
-                  left: `${rand(seed, i) * 100}%`,
-                  animationDelay: `${rand(seed, i + 30) * 1.6}s`,
-                  animationDuration: `${2.6 + rand(seed, i + 70) * 1.8}s`,
-                  fontSize: `${12 + rand(seed, i + 11) * 16}px`,
-                  '--drift': `${(rand(seed, i + 5) - 0.5) * 80}px`,
-                } as CSSProperties
-              }
-            >
-              ❄
-            </span>
-          ))}
-        </>
-      );
-    default:
-      return null;
-  }
-}
-
-/** Barra de efeitos de quem assiste (e o laser, que quem transmite também pode usar). */
-export function FxBar({ streamerId, own }: { streamerId: string; own?: boolean }) {
-  const laser = useApp((s) => s.laser);
-  const [winks, setWinks] = useState(false);
+/** Ferramentas sobre a live: laser, lápis e apagar tudo. */
+export function FxBar({ streamerId }: { streamerId: string }) {
+  const tool = useApp((s) => s.tool);
+  const [hasDrawing, setHasDrawing] = useState(() => strokesOf(streamerId).length > 0);
   useEffect(() => {
-    if (!laser) return;
+    setHasDrawing(strokesOf(streamerId).length > 0);
+    return onDrawing((id) => {
+      if (id === streamerId) setHasDrawing(strokesOf(streamerId).length > 0);
+    });
+  }, [streamerId]);
+  useEffect(() => {
+    if (tool !== 'laser') return;
     return () => hideLaser(streamerId);
-  }, [laser, streamerId]);
+  }, [tool, streamerId]);
   return (
     <div className="fx-bar" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      {!own && (
-        <>
-          {FX_REACTIONS.map((emoji) => (
-            <button key={emoji} type="button" className="fx-bar__emoji" aria-label={`Reagir com ${emoji}`} onClick={() => sendFx(streamerId, { kind: 'reaction', emoji })}>
-              {emoji}
-            </button>
-          ))}
-          <span className="fx-bar__sep" />
-          <button type="button" className="fx-bar__btn" aria-label="Chamar atenção" data-tip="Chamar atenção" onClick={() => sendFx(streamerId, { kind: 'nudge' })}>
-            <BellRing size={17} />
-          </button>
-          <span className="fx-bar__menu">
-            <button
-              type="button"
-              className={cx('fx-bar__btn', winks && 'is-on')}
-              aria-label="Efeitos na tela"
-              aria-expanded={winks}
-              data-tip={winks ? undefined : 'Efeitos na tela'}
-              onClick={() => setWinks(!winks)}
-            >
-              <Sparkles size={17} />
-            </button>
-            {winks && (
-              <span className="fx-winks" role="menu">
-                {FX_WINKS.map((w) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      sendFx(streamerId, { kind: 'wink', wink: w.id });
-                      setWinks(false);
-                    }}
-                  >
-                    <span>{w.icon}</span>
-                    {w.label}
-                  </button>
-                ))}
-              </span>
-            )}
-          </span>
-        </>
-      )}
       <button
         type="button"
-        className={cx('fx-bar__btn', laser && 'is-laser')}
+        className={cx('fx-bar__btn', tool === 'laser' && 'is-on')}
         aria-label="Laser"
-        data-tip={laser ? 'Desligar laser' : 'Laser: aponte na tela'}
-        aria-pressed={laser}
-        onClick={toggleLaser}
+        aria-pressed={tool === 'laser'}
+        data-tip={tool === 'laser' ? 'Desligar o laser' : 'Laser: aponte na tela'}
+        onClick={() => setTool('laser')}
       >
         <Crosshair size={17} />
+      </button>
+      <button
+        type="button"
+        className={cx('fx-bar__btn', tool === 'pencil' && 'is-on')}
+        aria-label="Lápis"
+        aria-pressed={tool === 'pencil'}
+        data-tip={tool === 'pencil' ? 'Guardar o lápis' : 'Lápis: segure e arraste para desenhar'}
+        onClick={() => setTool('pencil')}
+      >
+        <Pencil size={17} />
+      </button>
+      <button type="button" className="fx-bar__btn" aria-label="Apagar tudo" data-tip="Apagar todos os desenhos" disabled={!hasDrawing} onClick={() => clearDrawings(streamerId)}>
+        <Eraser size={17} />
       </button>
     </div>
   );

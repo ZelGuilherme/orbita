@@ -81,8 +81,14 @@ export interface AppState {
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
-  /** Laser ligado: o mouse em cima da live aponta para todo mundo. */
-  laser: boolean;
+  /** Ferramenta sobre a live: laser aponta, lápis desenha. */
+  tool: 'laser' | 'pencil' | null;
+  /** Largura do chat em px (null = padrão). */
+  chatWidth: number | null;
+  /** Saiu uma versão nova do Órbita. */
+  updateReady: boolean;
+  /** Já fechei a dica da janela flutuante nesta live. */
+  floatTipClosed: boolean;
   /** Janela flutuante (sempre por cima) com a prévia da live e os efeitos. */
   floating: boolean;
 }
@@ -119,7 +125,8 @@ const roomDefaults = () => ({
   localMutes: {},
   audioBlocked: false,
   memberCard: null,
-  laser: false,
+  tool: null,
+  floatTipClosed: false,
   floating: false,
   modal: null,
 });
@@ -137,6 +144,8 @@ export const useApp = create<AppState>()(() => ({
   volumes: loadVolumes(),
   liveVolumes: loadLiveVolumes(),
   chatOpen: loadUiPrefs().chatOpen,
+  chatWidth: loadUiPrefs().chatWidth,
+  updateReady: false,
   ...roomDefaults(),
 }));
 

@@ -16,7 +16,8 @@ Chat, voz, vídeo e lives **peer-to-peer**, direto no navegador. Quem abre a sal
 - **Atalhos editáveis** (teclado e botões laterais do mouse).
 - **Câmera** na chamada.
 - **Lives**: tela inteira, janela **com o som da janela** (Chrome/Edge/Brave 141+) ou aba, até 1080p a 60 fps. O som da própria chamada nunca vaza para a live. Qualidade, som, fonte e efeitos mudam com a live no ar. Quem assiste tem volume próprio para a live.
-- **Efeitos ao vivo**: quem assiste manda reações, "chamar atenção" (a janela de quem transmite treme) e animações na tela, e aponta com um laser. Tudo aparece para quem transmite e para todo mundo assistindo. Quem transmite pode abrir uma janela flutuante, sempre por cima, para ver os efeitos durante o jogo.
+- **Laser e lápis**: quem assiste aponta com um laser e desenha por cima da live; os desenhos ficam até alguém clicar em "Apagar tudo". Tudo aparece para quem transmite e para todo mundo assistindo. Quem transmite pode abrir uma janela flutuante, sempre por cima, para ver o laser e os desenhos durante o jogo.
+- **Chat redimensionável** (arraste a borda; dois cliques voltam ao padrão) e **atualização automática** quando sai uma versão nova.
 - **Visão "Órbita" da chamada**: o host fica no centro com um anel dourado e os membros giram em volta.
 - **Poderes do host**: silenciar para todos, remover, banir, trancar a sala, passar a coroa.
 - **Migração automática de host**: se o host cair, o membro mais antigo assume e a sala continua.

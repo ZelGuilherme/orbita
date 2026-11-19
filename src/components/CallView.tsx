@@ -365,7 +365,8 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const localScreen = useApp((s) => s.localScreen);
   const watching = useApp((s) => !!s.watching[m.id]);
   const focus = useApp((s) => s.focus);
-  const laser = useApp((s) => s.laser);
+  const tool = useApp((s) => s.tool);
+  const floatTipClosed = useApp((s) => s.floatTipClosed);
   const floating = useApp((s) => s.floating);
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -425,7 +426,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         </div>
       )}
 
-      {live && showVideo && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} interactive={laser && (!!big || focus === spec.id)} />}
+      {live && showVideo && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={!!big || focus === spec.id ? tool : null} />}
 
       <div className="tile__label">
         {m.id === hostId && <Crown size={13} className="gold" />}
@@ -475,7 +476,18 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         </div>
       )}
 
-      {live && showVideo && effects && <FxBar streamerId={m.id} own={isMe} />}
+      {live && showVideo && effects && (!isMe || floatTipClosed || floating || !canFloat()) && <FxBar streamerId={m.id} />}
+      {live && isMe && !floatTipClosed && !floating && canFloat() && (
+        <div className="float-tip" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <span>Veja o laser e os desenhos por cima do jogo</span>
+          <button type="button" className="btn btn--primary btn--sm" onClick={() => void openFloating()}>
+            <SquareArrowOutUpRight size={14} /> Abrir janela flutuante
+          </button>
+          <IconButton label="Fechar dica" onClick={() => setApp({ floatTipClosed: true })}>
+            <X size={15} />
+          </IconButton>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import type { DataConnection } from 'peerjs';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
 import { Hub, createRoom, hubPeerId } from './hub';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
-import type { ChatMessage, ClientMsg, HubMsg, LiveFx, Presence, RejectReason, RoomState } from './protocol';
+import type { ChatMessage, ClientMsg, FxStroke, HubMsg, LiveFx, Presence, RejectReason, RoomState } from './protocol';
 import { roomCode } from './util';
 import { createLocalPair, PeerWire, type Wire } from './wire';
 
@@ -36,6 +36,7 @@ export interface SessionHandlers {
   speaking(memberId: string, on: boolean): void;
   liveViewer(viewerId: string, viewerPeerId: string, on: boolean): void;
   fx(from: string, streamerId: string, fx: LiveFx): void;
+  fxSync(streamerId: string, strokes: FxStroke[]): void;
   status(status: SessionStatus, detail?: 'loss' | 'transfer'): void;
   ended(reason: EndReason): void;
   becameHost(): void;
@@ -369,6 +370,9 @@ export class Session {
         return;
       case 'fx':
         this.h.fx(msg.from, msg.streamerId, msg.fx);
+        return;
+      case 'fx:sync':
+        this.h.fxSync(msg.streamerId, msg.strokes);
         return;
       case 'kicked':
         this.end(msg.ban ? 'banned' : 'kicked');

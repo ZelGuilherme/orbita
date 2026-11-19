@@ -8,7 +8,7 @@ import { VideoEl } from './ui';
 
 /**
  * Janela flutuante da live (Document Picture-in-Picture, Chrome/Edge/Brave): fica sempre por
- * cima das outras janelas, então quem transmite vê os efeitos e o laser dos espectadores
+ * cima das outras janelas, então quem transmite vê o laser e os desenhos dos espectadores
  * mesmo com o jogo ou outro app na frente do Órbita.
  */
 
@@ -94,7 +94,7 @@ function FloatingLive() {
   return (
     <div className="floating tile tile--live tile--big">
       <VideoEl stream={stream} contain videoRef={videoRef} />
-      <FxLayer streamerId={meId} videoRef={videoRef} members={members} interactive={false} />
+      <FxLayer streamerId={meId} videoRef={videoRef} members={members} tool={null} />
       <div className="tile__label">
         <span className="live-badge">AO VIVO</span>
         <span className="floating__viewers">

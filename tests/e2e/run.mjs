@@ -168,34 +168,40 @@ async function chamadaCompleta(opened) {
   if (!liveAudio.includes(35)) throw new Error(`volume da live não chegou no áudio: ${liveAudio}`);
   log('  volume da live ok:', liveAudio.join(', '));
 
-  // efeitos e laser: aparecem para quem transmite e para quem assiste
-  await a.page.locator('.fx-bar__emoji').first().click();
-  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-reaction'), null, 10_000);
-  await a.page.locator('.fx-bar').getByRole('button', { name: 'Efeitos na tela' }).click();
-  await a.page.getByRole('menuitem', { name: /Disco voador/ }).click();
-  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-ufo'), null, 10_000);
-  await a.page.locator('.fx-bar').getByRole('button', { name: 'Chamar atenção' }).click();
-  await waitFor(b.page, () => [...document.querySelectorAll('.fx-credit')].some((el) => el.textContent.includes('chamou atenção')), null, 10_000);
-  await a.page.locator('.fx-bar').getByRole('button', { name: /Laser/ }).click();
+  // laser e lápis: aparecem para quem transmite e para quem assiste
+  const laserOf = (page) =>
+    page.evaluate(() => {
+      const el = document.querySelector('.tile--live .fx-laser');
+      const m = el?.style.transform.match(/translate\(([\d.]+)cqw, ([\d.]+)cqh\)/);
+      return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+    });
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Laser' }).click();
   const stage = await a.page.locator('.tile--live .fx-stage').boundingBox();
   await a.page.mouse.move(stage.x + stage.width * 0.25, stage.y + stage.height * 0.5);
   await a.page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.4, { steps: 5 });
-  await waitFor(
-    b.page,
-    () => {
-      const el = document.querySelector('.tile--live .fx-laser.is-on');
-      return el && Math.abs(parseFloat(el.style.left) - 30) < 1.5 && Math.abs(parseFloat(el.style.top) - 40) < 1.5;
-    },
-    null,
-    10_000,
-  );
-  const laserAt = await b.page.evaluate(() => {
-    const el = document.querySelector('.tile--live .fx-laser.is-on');
-    return { left: parseFloat(el.style.left), top: parseFloat(el.style.top) };
-  });
-  if (Math.abs(laserAt.left - 30) > 4 || Math.abs(laserAt.top - 40) > 4) throw new Error(`laser fora do lugar: ${JSON.stringify(laserAt)}`);
-  log('  efeitos ok (reação, disco voador, chamar atenção) e laser em', laserAt);
-  await shot(b.page, 'live-efeitos-streamer');
+  await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-laser'), null, 10_000);
+  await b.page.waitForTimeout(400);
+  const laserAt = await laserOf(b.page);
+  if (!laserAt || Math.abs(laserAt.x - 30) > 1.5 || Math.abs(laserAt.y - 40) > 1.5) throw new Error(`laser fora do lugar: ${JSON.stringify(laserAt)}`);
+  log('  laser ok, na tela de quem transmite em', laserAt);
+
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Lápis' }).click();
+  await a.page.mouse.move(stage.x + stage.width * 0.2, stage.y + stage.height * 0.2);
+  await a.page.mouse.down();
+  await a.page.mouse.move(stage.x + stage.width * 0.6, stage.y + stage.height * 0.7, { steps: 12 });
+  await a.page.mouse.up();
+  await waitFor(b.page, () => (document.querySelector('.tile--live .fx-draw path')?.getAttribute('d')?.split('L').length ?? 0) > 8, null, 10_000);
+  // quem começa a assistir depois recebe o desenho que já está lá
+  await c.page.getByRole('button', { name: /Assistir live/ }).first().click();
+  await waitFor(c.page, () => !!document.querySelector('.tile--live .fx-draw path'), null, 20_000);
+  log('  lápis ok (quem transmite vê, e quem chegou depois também)');
+  await a.page.mouse.move(5, 5);
+  await shot(b.page, 'live-lapis-streamer');
+  await a.page.locator('.tile--live').first().hover();
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Apagar tudo' }).click();
+  for (const u of [a, b, c]) await waitFor(u.page, () => !document.querySelector('.tile--live .fx-draw path'), null, 10_000);
+  log('  apagar tudo ok para todo mundo');
+  await c.page.getByRole('button', { name: 'Parar de assistir' }).click().catch(() => {});
 
   // opções com a live no ar: qualidade e trocar a fonte, sem derrubar o espectador
   await b.page.getByRole('button', { name: 'Opções da live' }).last().click();

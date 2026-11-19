@@ -1,5 +1,5 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
-import { allowFx, emitFx, type FxLimits } from './lib/fx';
+import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
 import {
   appLikelyInstalled,
@@ -30,6 +30,7 @@ import { PeerOpenError } from './lib/peer';
 import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { setSoundsEnabled, sfx } from './lib/sounds';
+import { watchForUpdates } from './lib/update';
 import {
   loadProfile,
   loadSettings,
@@ -58,7 +59,7 @@ let initialized = false;
 let pendingJoin: string | null = null;
 const liveRetries = new Map<string, number>();
 const watchTimers = new Map<string, number>();
-const fxLimits: FxLimits = { laser: [], fx: [], nudge: 0 };
+const fxLimits = newFxLimits();
 
 function myMember(): Member | undefined {
   const s = getApp();
@@ -126,6 +127,7 @@ function makeHandlers(meId: string): SessionHandlers {
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
+    fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
     status: (status, detail) => {
       if (status === 'reconnecting') setApp({ net: 'reconnecting', netDetail: detail ?? 'loss' });
       else if (status === 'connected') setApp({ net: 'connected', netDetail: '' });
@@ -179,7 +181,8 @@ function applyState(state: RoomState, meId: string, first: boolean) {
   }
   if (speakingChanged) patch.speaking = speaking;
 
-  // lives que terminaram
+  // lives que terminaram (e os desenhos delas)
+  if (prev) for (const m of prev.members) if (m.live && !state.members.find((n) => n.id === m.id)?.live) dropDrawing(m.id);
   const watching = { ...s.watching };
   let watchingChanged = false;
   for (const id of Object.keys(watching)) {
@@ -441,8 +444,20 @@ export async function shareInvite() {
 
 export function setChatOpen(chatOpen: boolean) {
   setApp((s) => ({ chatOpen, unread: chatOpen ? 0 : s.unread, mentions: chatOpen ? 0 : s.mentions }));
-  saveUiPrefs({ chatOpen });
+  saveUiPrefs({ chatOpen, chatWidth: getApp().chatWidth });
   syncTitle();
+}
+
+/** Largura do chat arrastando a borda (null = volta ao padrão). */
+/** Recarrega para a versão nova (sai da sala; o convite continua no endereço). */
+export function applyUpdate() {
+  session?.destroyNow();
+  location.reload();
+}
+
+export function setChatWidth(chatWidth: number | null, save = true) {
+  setApp({ chatWidth });
+  if (save) saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth });
 }
 
 export const toggleChat = () => setChatOpen(!getApp().chatOpen);
@@ -576,7 +591,7 @@ export async function startLive() {
       viewers: 0,
       effects: getApp().settings.liveEffects,
     };
-    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto' });
+    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto', floatTipClosed: false });
     sendPresence({ live });
     sfx.live();
     if (opts.audio && !capture.hasAudio) toast(audioHint(capture.surface), 'info', 8_000);
@@ -691,56 +706,31 @@ export function toggleLiveMute(memberId: string) {
   });
 }
 
-// ───────────────────────── efeitos ao vivo ─────────────────────────
+// ───────────────────────── laser e lápis ─────────────────────────
 
 function onRemoteFx(from: string, streamerId: string, fx: LiveFx) {
   const s = getApp();
-  const mine = streamerId === s.meId;
-  if (!mine && !s.watching[streamerId]) return;
-  emitFx({ streamerId, from, fx });
-  if (fx.kind === 'nudge') {
-    sfx.nudge();
-    if (mine) {
-      const who = s.room?.members.find((m) => m.id === from)?.name ?? 'Alguém';
-      toast(`📳 ${who} chamou sua atenção!`);
-      shake();
-    }
-  } else if (fx.kind === 'wink') {
-    sfx.fx();
-  }
+  if (streamerId !== s.meId && !s.watching[streamerId]) return;
+  if (fx.kind === 'stroke') drawStroke(streamerId, from, fx.id, fx.points);
+  else if (fx.kind === 'clear') clearDrawing(streamerId);
+  else emitFx({ streamerId, from, fx });
 }
 
-/** Sacode a janela, como o "chamar atenção" do MSN. */
-function shake() {
-  const root = document.getElementById('root');
-  if (!root) return;
-  root.classList.remove('is-nudged');
-  void root.offsetWidth;
-  root.classList.add('is-nudged');
-  window.setTimeout(() => root.classList.remove('is-nudged'), 700);
-}
-
-/** Manda um efeito para a live de alguém (e mostra na hora para quem mandou). */
-export function sendFx(streamerId: string, fx: LiveFx) {
+function sendFx(streamerId: string, fx: LiveFx): boolean {
   const s = getApp();
-  if (!session || !s.meId) return;
+  if (!session || !s.meId) return false;
   const streamer = s.room?.members.find((m) => m.id === streamerId);
-  if (!streamer?.live?.effects) return;
-  if (!allowFx(fxLimits, fx, Date.now())) {
-    if (fx.kind === 'nudge') toast('Espere uns segundos para chamar a atenção de novo.');
-    else if (fx.kind !== 'laser') toast('Calma! Muitos efeitos de uma vez.');
-    return;
-  }
+  if (!streamer?.live || (!streamer.live.effects && streamerId !== s.meId)) return false;
+  if (!allowFx(fxLimits, fx, Date.now())) return false;
   session.send({ t: 'fx', streamerId, fx });
-  emitFx({ streamerId, from: s.meId, fx });
-  if (fx.kind === 'nudge' || fx.kind === 'wink') sfx.fx();
+  return true;
 }
 
 let laserSentAt = 0;
 let laserTimer = 0;
 let laserPending: { streamerId: string; x: number; y: number } | null = null;
 
-/** Laser: a posição local aparece na hora; para a rede, no máximo ~22 por segundo. */
+/** Laser: a posição local aparece na hora; para a rede vão ~60 posições por segundo. */
 export function moveLaser(streamerId: string, x: number, y: number) {
   const s = getApp();
   if (!session || !s.meId) return;
@@ -750,10 +740,10 @@ export function moveLaser(streamerId: string, x: number, y: number) {
     laserTimer = 0;
     if (!laserPending) return;
     laserSentAt = Date.now();
-    session?.send({ t: 'fx', streamerId: laserPending.streamerId, fx: { kind: 'laser', x: laserPending.x, y: laserPending.y } });
+    sendFx(laserPending.streamerId, { kind: 'laser', x: laserPending.x, y: laserPending.y });
     laserPending = null;
   };
-  const wait = 45 - (Date.now() - laserSentAt);
+  const wait = 16 - (Date.now() - laserSentAt);
   if (wait <= 0) flush();
   else if (!laserTimer) laserTimer = window.setTimeout(flush, wait);
 }
@@ -765,10 +755,49 @@ export function hideLaser(streamerId: string) {
   laserPending = null;
   if (!s.meId) return;
   emitFx({ streamerId, from: s.meId, fx: { kind: 'laser-off' } });
-  session?.send({ t: 'fx', streamerId, fx: { kind: 'laser-off' } });
+  sendFx(streamerId, { kind: 'laser-off' });
 }
 
-export const toggleLaser = () => setApp((s) => ({ laser: !s.laser }));
+let stroke: { streamerId: string; id: string; pending: number[]; timer: number } | null = null;
+
+function flushStroke() {
+  if (!stroke) return;
+  clearTimeout(stroke.timer);
+  stroke.timer = 0;
+  while (stroke.pending.length) {
+    const points = stroke.pending.splice(0, 200);
+    sendFx(stroke.streamerId, { kind: 'stroke', id: stroke.id, points });
+  }
+}
+
+/** Lápis: começa um traço novo. */
+export function beginStroke(streamerId: string, x: number, y: number) {
+  endStroke();
+  stroke = { streamerId, id: randomId(10), pending: [], timer: 0 };
+  extendStroke(x, y);
+}
+
+/** Lápis: mais um ponto do traço atual (aparece na hora; vai para a rede a cada 30 ms). */
+export function extendStroke(x: number, y: number) {
+  const s = getApp();
+  if (!stroke || !s.meId) return;
+  const point = [Math.round(x * 10_000) / 10_000, Math.round(y * 10_000) / 10_000];
+  drawStroke(stroke.streamerId, s.meId, stroke.id, point);
+  stroke.pending.push(...point);
+  if (!stroke.timer) stroke.timer = window.setTimeout(flushStroke, 30);
+}
+
+export function endStroke() {
+  flushStroke();
+  stroke = null;
+}
+
+/** Apaga todos os desenhos da live (qualquer pessoa pode). */
+export function clearDrawings(streamerId: string) {
+  if (sendFx(streamerId, { kind: 'clear' })) clearDrawing(streamerId);
+}
+
+export const setTool = (tool: 'laser' | 'pencil' | null) => setApp((s) => ({ tool: s.tool === tool ? null : tool }));
 
 // ───────────────────────── host ─────────────────────────
 
@@ -1016,6 +1045,11 @@ export function initController() {
   setSoundsEnabled(getApp().settings.sounds);
   void loadKeyboardLayout();
   trackInstallation();
+  watchForUpdates(() => {
+    // fora de uma sala, recarrega na hora; dentro, só avisa (recarregar derruba a chamada)
+    if (!session && getApp().phase !== 'connecting') location.reload();
+    else setApp({ updateReady: true });
+  });
 
   const fromApp = cleanProtocolParam();
   const code = fromApp ?? inviteFromHash();

@@ -11,13 +11,13 @@ import {
   type ReactNode,
 } from 'react';
 import { ImagePlus, LoaderCircle, MessageSquare, Orbit, PanelRightClose, Pencil, Send, Smile, SmilePlus, Trash2, X } from 'lucide-react';
-import { deleteMessage, editMessage, notifyTyping, react, sendMessage, setChatOpen } from '../controller';
+import { deleteMessage, editMessage, notifyTyping, react, sendMessage, setChatOpen, setChatWidth } from '../controller';
 import { MAX_TEXT_LENGTH, QUICK_EMOJIS, REACTIONS } from '../lib/config';
 import { imageToAttachment } from '../lib/images';
 import { isJumbo, mentionKeys, mentionsName, renderMarkdown } from '../lib/markdown';
 import type { Attachment, ChatMessage, Member } from '../lib/protocol';
 import { errorMessage, formatDay, formatTime } from '../lib/util';
-import { setApp, toast, useApp } from '../store';
+import { getApp, setApp, toast, useApp } from '../store';
 import { Planet } from './Planet';
 import { cx, IconButton, useNow } from './ui';
 
@@ -54,6 +54,7 @@ export function ChatPanel() {
       }}
       onDrop={onDrop}
     >
+      <ResizeHandle />
       <header className="chat-panel__head">
         <MessageSquare size={18} />
         <h2>Chat</h2>
@@ -65,6 +66,50 @@ export function ChatPanel() {
       <Composer dropped={dropped} onDroppedHandled={() => setDropped(null)} />
       {dragging && <div className="drop-overlay">Solte a imagem para enviar no chat</div>}
     </aside>
+  );
+}
+
+const MIN_CHAT = 280;
+const clampChat = (width: number) => Math.round(Math.max(MIN_CHAT, Math.min(width, Math.max(MIN_CHAT, window.innerWidth / 2))));
+
+/** Alça na borda esquerda do chat: arraste para mudar a largura, dois cliques voltam ao padrão. */
+function ResizeHandle() {
+  const width = useApp((s) => s.chatWidth);
+  return (
+    <div
+      className="chat-panel__resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Largura do chat"
+      aria-valuenow={width ?? undefined}
+      tabIndex={0}
+      title="Arraste para mudar a largura · dois cliques voltam ao padrão"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const handle = e.currentTarget;
+        handle.setPointerCapture(e.pointerId);
+        handle.classList.add('is-dragging');
+        const move = (ev: PointerEvent) => setChatWidth(clampChat(window.innerWidth - ev.clientX), false);
+        const up = () => {
+          handle.classList.remove('is-dragging');
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', up);
+          handle.removeEventListener('pointercancel', up);
+          const final = getApp().chatWidth;
+          if (final) setChatWidth(final);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+      }}
+      onDoubleClick={() => setChatWidth(null)}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const current = e.currentTarget.parentElement?.getBoundingClientRect().width ?? 360;
+        setChatWidth(clampChat(current + (e.key === 'ArrowLeft' ? 24 : -24)));
+      }}
+    />
   );
 }
 

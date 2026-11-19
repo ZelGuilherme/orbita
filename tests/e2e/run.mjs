@@ -145,6 +145,24 @@ async function chamadaCompleta(opened) {
   await waitFor(a.page, () => [...document.querySelectorAll('.people .person')].some((el) => el.textContent.includes('Bruno') && el.querySelector('img.planet__photo')), null, 10_000);
   log('  foto de perfil ok');
 
+  // planeta personalizado (anéis e luas) aparece para os outros; o host tem coroa
+  await b.page.getByRole('button', { name: 'Configurações' }).last().click();
+  await b.page.locator('.planet-editor .field', { hasText: 'Anéis' }).getByRole('button', { name: '2' }).click();
+  await b.page.locator('.planet-editor .field', { hasText: 'Luas' }).getByRole('button', { name: '3' }).click();
+  await b.page.locator('.settings__close').click();
+  await waitFor(
+    a.page,
+    () => {
+      const row = [...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Bruno'));
+      return row && row.querySelectorAll('.planet__ring').length === 4 && row.querySelectorAll('.planet__moon').length === 3;
+    },
+    null,
+    10_000,
+  );
+  const crown = await b.page.evaluate(() => !![...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Ana'))?.querySelector('.planet__crown'));
+  if (!crown) throw new Error('o host (Ana) está sem a coroa');
+  log('  planeta personalizado e coroa do host ok');
+
   for (const u of [a, b, c]) await joinCall(u);
   for (const u of [a, b, c]) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);

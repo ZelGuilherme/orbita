@@ -33,9 +33,14 @@ interface Laser {
 }
 
 /** Retângulo da imagem dentro do elemento (object-fit: contain). */
-function contentBox(video: HTMLVideoElement | null, width: number, height: number): Box {
-  const vw = video?.videoWidth ?? 0;
-  const vh = video?.videoHeight ?? 0;
+function contentBox(video: HTMLVideoElement | null, width: number, height: number, aspect?: number): Box {
+  let vw = video?.videoWidth ?? 0;
+  let vh = video?.videoHeight ?? 0;
+  // sem vídeo (prévia escondida): usa o formato da tela transmitida
+  if ((!vw || !vh) && aspect) {
+    vw = aspect;
+    vh = 1;
+  }
   if (!vw || !vh || !width || !height) return { left: 0, top: 0, width, height };
   const scale = Math.min(width / vw, height / vh);
   const w = vw * scale;
@@ -70,12 +75,15 @@ export function FxLayer({
   videoRef,
   members,
   tool,
+  aspect,
 }: {
   streamerId: string;
   videoRef: RefObject<HTMLVideoElement | null>;
   members: Member[];
   /** Ferramenta ativa nesta tela (null = só mostra). */
   tool: 'laser' | 'pencil' | null;
+  /** Formato da imagem quando não há vídeo na tela (largura / altura). */
+  aspect?: number;
 }) {
   const layer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -94,7 +102,7 @@ export function FxLayer({
     const el = layer.current;
     if (!el) return;
     const update = () => {
-      const next = contentBox(videoRef.current, el.clientWidth, el.clientHeight);
+      const next = contentBox(videoRef.current, el.clientWidth, el.clientHeight, aspect);
       setBox((prev) =>
         Math.abs(prev.left - next.left) < 0.5 &&
         Math.abs(prev.top - next.top) < 0.5 &&
@@ -117,7 +125,7 @@ export function FxLayer({
       video?.removeEventListener('resize', update);
       clearInterval(timer);
     };
-  }, [videoRef]);
+  }, [videoRef, aspect]);
 
   // desenhos do lápis
   useEffect(() => {

@@ -198,7 +198,7 @@ function UserPanel() {
   return (
     <div className="user-panel">
       <button type="button" className="user-panel__me" onClick={() => setApp({ modal: { kind: 'settings', tab: 'perfil' } })} title="Editar perfil">
-        <Planet name={profile.name} color={profile.color} avatar={profile.avatar} size={34} speaking={speaking} host={isHost} />
+        <Planet name={profile.name} color={profile.color} avatar={profile.avatar} planet={profile.planet} size={34} speaking={speaking} host={isHost} />
         <span className="user-panel__text">
           <span className="user-panel__name">{profile.name}</span>
           <span className="user-panel__sub">{inCall ? 'na chamada' : `#${code}`}</span>

@@ -40,6 +40,8 @@ export interface LiveCapture {
   surface: LiveSurface;
   /** O navegador entregou som junto (a pessoa marcou “compartilhar áudio”). */
   hasAudio: boolean;
+  /** O navegador está tirando da captura o som do próprio Órbita (sem eco). */
+  ownAudioRemoved: boolean;
 }
 
 const CAMERA = {
@@ -509,6 +511,8 @@ export class MediaEngine {
             noiseSuppression: false,
             autoGainControl: false,
             // tira o som do próprio Órbita (a voz da chamada) do que é capturado: sem eco
+            // o navegador tira da captura o som desta aba (as vozes da chamada) e deixa o das
+            // outras abas e programas: medido no Edge e no Brave, as vozes somem por completo
             restrictOwnAudio: true,
             suppressLocalAudioPlayback: false,
           }
@@ -531,6 +535,7 @@ export class MediaEngine {
       stream,
       surface: surface === 'monitor' || surface === 'window' || surface === 'browser' ? surface : 'unknown',
       hasAudio: stream.getAudioTracks().length > 0,
+      ownAudioRemoved: (stream.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { restrictOwnAudio?: boolean } | undefined)?.restrictOwnAudio === true,
     };
   }
 

@@ -702,3 +702,9 @@
     opacity: 0;
   }
 }
+
+/* anéis e luas não encostam no nome */
+.person .planet,
+.user-panel__me .planet {
+  margin: 0 5px;
+}

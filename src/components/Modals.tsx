@@ -56,12 +56,13 @@ import { availableCodecs } from '../lib/liveQuality';
 import { LIVE_PRESETS, type LiveSurface } from '../lib/media';
 import { parseIceServers } from '../lib/peer';
 import type { LiveQuality } from '../lib/protocol';
+import { DEFAULT_PLANET, PLANET_TEXTURES, type PlanetStyle } from '../lib/planet';
 import { DEFAULT_NETWORK, type NoiseFilter } from '../lib/storage';
 import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
 import { VoiceProcessor, voiceOptions } from '../lib/voice';
 import { getApp, setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
 import { canFloat, openFloating } from './Floating';
-import { AvatarButtons, Swatches } from './Landing';
+import { AvatarButtons, ColorInput, Swatches } from './Landing';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx, IconButton, Modal, Switch } from './ui';
@@ -201,7 +202,7 @@ function ProfileTab() {
       <h3 className="settings__title">Perfil</h3>
       <div className="profile-preview">
         <div className="avatar-edit">
-          <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} size={92} host={isHost} />
+          <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} planet={profile.planet} size={92} host={isHost} />
           <AvatarButtons />
         </div>
         <label className="field">
@@ -221,11 +222,81 @@ function ProfileTab() {
         <span>Cor do seu planeta</span>
         <Swatches value={profile.color} onChange={(color) => updateProfile({ color })} />
       </div>
+      <PlanetEditor />
       <p className="muted small">
         Seu perfil fica salvo neste navegador (e no app do Órbita instalado por ele). Mudou aqui, muda lá também. Não existe conta nem servidor
         guardando nada.
       </p>
     </>
+  );
+}
+
+/** Textura, anéis, luas e brilho do planeta (a prévia lá em cima mostra na hora). */
+function PlanetEditor() {
+  const profile = useApp((s) => s.profile);
+  const look = profile.planet ?? DEFAULT_PLANET;
+  const set = (patch: Partial<PlanetStyle>) => updateProfile({ planet: { ...look, ...patch } });
+  const counts = (n: number) => Array.from({ length: n }, (_, i) => i);
+  return (
+    <div className="planet-editor">
+      <div className="field">
+        <span>Superfície</span>
+        <div className="texture-row">
+          {PLANET_TEXTURES.map((t) => (
+            <button key={t.id} type="button" className={cx('texture-pick', look.texture === t.id && 'is-on')} aria-pressed={look.texture === t.id} onClick={() => set({ texture: t.id })}>
+              <Planet name={profile.name} color={profile.color} planet={{ ...look, texture: t.id, rings: 0, moons: 0, glow: false }} size={36} text=" " />
+              <small>{t.label}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="planet-editor__grid">
+        <div className="field">
+          <span>Anéis</span>
+          <div className="planet-editor__row">
+            <div className="seg">
+              {counts(3).map((n) => (
+                <button key={n} type="button" className={cx(look.rings === n && 'is-on')} onClick={() => set({ rings: n as PlanetStyle['rings'] })}>
+                  {n === 0 ? 'Nenhum' : n}
+                </button>
+              ))}
+            </div>
+            {look.rings > 0 && <ColorInput value={look.ringColor} onChange={(ringColor) => set({ ringColor })} label="Cor dos anéis" />}
+          </div>
+          {look.rings > 0 && (
+            <input type="range" min={-40} max={40} value={look.ringTilt} aria-label="Inclinação dos anéis" onChange={(e) => set({ ringTilt: Number(e.target.value) })} />
+          )}
+        </div>
+        <div className="field">
+          <span>Luas</span>
+          <div className="planet-editor__row">
+            <div className="seg">
+              {counts(4).map((n) => (
+                <button key={n} type="button" className={cx(look.moons === n && 'is-on')} onClick={() => set({ moons: n as PlanetStyle['moons'] })}>
+                  {n === 0 ? 'Nenhuma' : n}
+                </button>
+              ))}
+            </div>
+            {look.moons > 0 && <ColorInput value={look.moonColor} onChange={(moonColor) => set({ moonColor })} label="Cor das luas" />}
+          </div>
+        </div>
+        <div className="field">
+          <span>Brilho</span>
+          <div className="planet-editor__row">
+            <div className="seg">
+              <button type="button" className={cx(!look.glow && 'is-on')} onClick={() => set({ glow: false })}>
+                Sem brilho
+              </button>
+              <button type="button" className={cx(look.glow && 'is-on')} onClick={() => set({ glow: true })}>
+                Com brilho
+              </button>
+            </div>
+            {look.glow && <ColorInput value={look.glowColor} onChange={(glowColor) => set({ glowColor })} label="Cor do brilho" />}
+          </div>
+        </div>
+      </div>
+      {profile.avatar && <p className="muted small">Com foto, ela fica no lugar da superfície; anéis, luas e brilho continuam em volta.</p>}
+    </div>
   );
 }
 
@@ -1032,7 +1103,8 @@ function LiveTips() {
           <i>janela</i> do navegador (com o áudio do app) no lugar da aba: a imagem é a mesma e o som da chamada fica de fora.
         </li>
         <li>
-          <b>Tela inteira:</b> ative <i>compartilhar áudio do sistema</i>. O som do Órbita é removido automaticamente.
+          <b>Tela inteira:</b> ative <i>compartilhar áudio do sistema</i>. As vozes da chamada são tiradas da live automaticamente (sem eco); o
+          som das outras abas e programas continua.
         </li>
         <li>
           <b>Um monitor (ou as janelas dele) não aparece?</b> Em notebooks com duas placas de vídeo, o navegador rodando na placa dedicada

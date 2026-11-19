@@ -11,7 +11,30 @@ import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx } from './ui';
 
+/** Seletor de cor livre que não manda uma atualização a cada pixel arrastado. */
+export function ColorInput({ value, onChange, label }: { value: string; onChange: (color: string) => void; label: string }) {
+  const [draft, setDraft] = useState(value);
+  const timer = useRef(0);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <input
+      type="color"
+      className="color-input"
+      aria-label={label}
+      title={label}
+      value={draft}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => onChange(next), 120);
+      }}
+    />
+  );
+}
+
 export function Swatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
+  const custom = !PLANET_COLORS.includes(value);
   return (
     <div className="swatches" role="radiogroup" aria-label="Cor do planeta">
       {PLANET_COLORS.map((color) => (
@@ -26,6 +49,9 @@ export function Swatches({ value, onChange }: { value: string; onChange: (color:
           onClick={() => onChange(color)}
         />
       ))}
+      <label className={cx('swatch swatch--custom', custom && 'is-on')} title="Escolher qualquer cor" style={custom ? { background: planetBackground(value) } : undefined}>
+        <ColorInput value={value} onChange={onChange} label="Escolher qualquer cor" />
+      </label>
     </div>
   );
 }
@@ -155,8 +181,11 @@ export function Landing() {
 
           <div className="profile-picker">
             <div className="avatar-edit">
-              <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} size={68} />
+              <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} planet={profile.planet} size={68} />
               <AvatarButtons />
+              <button type="button" className="link-btn" onClick={() => setApp({ modal: { kind: 'settings', tab: 'perfil' } })}>
+                <Sparkles size={14} /> Personalizar
+              </button>
             </div>
             <div className="profile-picker__fields">
               <label className="field">

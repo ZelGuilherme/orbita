@@ -208,3 +208,37 @@
   font-size: 12px;
   color: var(--text-2);
 }
+
+/* minha live da tela inteira: sem a imagem (espelho infinito), só laser e desenhos */
+.own-live {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 16px;
+  background:
+    radial-gradient(70% 60% at 50% 45%, rgba(244, 63, 94, 0.12), transparent 70%),
+    #05060f;
+  text-align: center;
+}
+
+.own-live span {
+  font-weight: 750;
+}
+
+.own-live small {
+  max-width: 380px;
+  color: var(--text-3);
+}
+
+.own-live .btn {
+  position: relative;
+  z-index: 7;
+  margin-top: 4px;
+}
+
+.own-live--floating {
+  place-content: unset;
+}

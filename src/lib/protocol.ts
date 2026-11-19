@@ -9,6 +9,8 @@
  * Cada sala tem exatamente um chat de texto e uma chamada de voz (os dois "canais" fixos).
  */
 
+import type { PlanetStyle } from './planet';
+
 export type ChannelType = 'text' | 'voice';
 
 export interface Channel {
@@ -61,6 +63,8 @@ export interface Member extends Presence {
   peerId: string;
   name: string;
   color: string;
+  /** Textura, anéis, luas e brilho do planeta. */
+  planet?: PlanetStyle;
   /** Ordem de chegada: define quem herda o host se ele cair. */
   joinedAt: number;
   /** Microfone bloqueado pelo host. */
@@ -123,7 +127,7 @@ export type ClientMsg =
   | {
       t: 'hello';
       v: number;
-      member: { id: string; peerId: string; name: string; color: string; avatar?: string };
+      member: { id: string; peerId: string; name: string; color: string; avatar?: string; planet?: PlanetStyle };
       presence: Presence;
       /** Reentrada depois de queda/migração: mantém o lugar na fila. */
       rejoinAt?: number;
@@ -137,7 +141,7 @@ export type ClientMsg =
   | { t: 'typing'; channelId: string }
   | { t: 'speaking'; on: boolean }
   | { t: 'presence'; presence: Partial<Presence> }
-  | { t: 'profile'; name: string; color: string; avatar?: string | null }
+  | { t: 'profile'; name: string; color: string; avatar?: string | null; planet?: PlanetStyle }
   | { t: 'live:watch'; streamerId: string; on: boolean }
   | { t: 'fx'; streamerId: string; fx: LiveFx }
   | { t: 'admin'; action: AdminAction };

@@ -363,6 +363,8 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const liveStream = useApp((s) => s.liveStreams[m.id]);
   const localCamera = useApp((s) => s.localCamera);
   const localScreen = useApp((s) => s.localScreen);
+  const liveSurface = useApp((s) => s.liveSurface);
+  const ownPreview = useApp((s) => s.ownPreview);
   const watching = useApp((s) => !!s.watching[m.id]);
   const focus = useApp((s) => s.focus);
   const tool = useApp((s) => s.tool);
@@ -377,6 +379,10 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   if (spec.kind === 'cam') stream = m.cameraOn ? (isMe ? localCamera : voiceStream) : null;
   else stream = isMe ? localScreen : watching ? liveStream : null;
   const showVideo = !!stream && stream.getVideoTracks().length > 0;
+  // transmitindo a tela inteira, a própria prévia mostraria a tela dentro da tela sem fim
+  const hideOwn = isMe && spec.kind === 'live' && liveSurface === 'monitor' && !ownPreview;
+  const ownSettings = hideOwn ? localScreen?.getVideoTracks()[0]?.getSettings() : undefined;
+  const ownAspect = ownSettings?.width && ownSettings.height ? ownSettings.width / ownSettings.height : 16 / 9;
   const live = spec.kind === 'live' ? m.live : null;
   const effects = !!live && (live.effects || isMe);
 
@@ -397,7 +403,22 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
       onClick={toggleFocus}
       onDoubleClick={fullscreen}
     >
-      {showVideo && stream ? (
+      {hideOwn ? (
+        <div className="own-live">
+          <span>Você está transmitindo a tela inteira.</span>
+          <small>A prévia fica escondida para não virar um espelho infinito. O laser e os desenhos aparecem aqui.</small>
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setApp({ ownPreview: true });
+            }}
+          >
+            Mostrar prévia mesmo assim
+          </button>
+        </div>
+      ) : showVideo && stream ? (
         <VideoEl stream={stream} mirror={spec.kind === 'cam' && isMe} contain={spec.kind === 'live'} videoRef={spec.kind === 'live' ? videoRef : undefined} />
       ) : spec.kind === 'cam' ? (
         <div className="tile__planet">
@@ -426,7 +447,9 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         </div>
       )}
 
-      {live && showVideo && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={!!big || focus === spec.id ? tool : null} />}
+      {live && showVideo && effects && (
+        <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={!!big || focus === spec.id ? tool : null} aspect={hideOwn ? ownAspect : undefined} />
+      )}
 
       <div className="tile__label">
         {m.id === hostId && <Crown size={13} className="gold" />}

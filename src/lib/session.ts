@@ -3,6 +3,7 @@ import type { DataConnection } from 'peerjs';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
 import { Hub, createRoom, hubPeerId } from './hub';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
+import type { PlanetStyle } from './planet';
 import type { ChatMessage, ClientMsg, FxStroke, HubMsg, LiveFx, Presence, RejectReason, RoomState } from './protocol';
 import { roomCode } from './util';
 import { createLocalPair, PeerWire, type Wire } from './wire';
@@ -49,6 +50,7 @@ export interface Identity {
   name: string;
   color: string;
   avatar?: string;
+  planet?: PlanetStyle;
 }
 
 interface Migration {
@@ -160,7 +162,7 @@ export class Session {
 
   setIdentity(identity: Omit<Identity, 'id'>) {
     this.identity = { ...identity, id: this.meId };
-    this.send({ t: 'profile', name: identity.name, color: identity.color, avatar: identity.avatar ?? null });
+    this.send({ t: 'profile', name: identity.name, color: identity.color, avatar: identity.avatar ?? null, planet: identity.planet });
   }
 
   leave() {
@@ -230,7 +232,7 @@ export class Session {
     return {
       t: 'hello',
       v: PROTOCOL_VERSION,
-      member: { id: this.meId, peerId: this.peer.id, name: this.identity.name, color: this.identity.color, avatar: this.identity.avatar },
+      member: { id: this.meId, peerId: this.peer.id, name: this.identity.name, color: this.identity.color, avatar: this.identity.avatar, planet: this.identity.planet },
       presence: this.presence(),
       rejoinAt: rejoin ? me?.joinedAt : undefined,
     };

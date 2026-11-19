@@ -366,7 +366,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     landingError: null,
     connectingText: mode === 'create' ? 'Criando sua órbita…' : `Entrando na órbita ${arg}…`,
   });
-  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar };
+  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet };
   const handlers = makeHandlers(identity.id);
   try {
     const created =
@@ -375,6 +375,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
         : await Session.join(identity, arg, presence, handlers);
     session = created;
     media = new MediaEngine(mediaEvents(), () => getApp().settings);
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaMedia = media;
     media.attach(created.peer, created.meId);
     if (created.state) media.update(created.state);
     setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null, unread: 0, mentions: 0 });
@@ -600,10 +601,14 @@ export async function startLive() {
       viewers: 0,
       effects: getApp().settings.liveEffects,
     };
-    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto', floatTipClosed: false });
+    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto', floatTipClosed: false, ownPreview: false });
     sendPresence({ live });
     sfx.live();
     if (opts.audio && !capture.hasAudio) toast(audioHint(capture.surface), 'info', 8_000);
+    else if (capture.hasAudio && capture.surface !== 'browser' && !capture.ownAudioRemoved) {
+      // navegador sem a remoção do próprio som: as vozes da chamada iriam junto
+      toast('Este navegador não tira as vozes da chamada do som da live: quem assiste pode ouvir eco. Use Chrome, Edge ou Brave atualizados.', 'error', 9_000);
+    }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'NotAllowedError') toast('Compartilhamento cancelado.');
     else toast(`Não consegui iniciar a live: ${errorMessage(err)}.`, 'error');
@@ -827,7 +832,7 @@ function applyProfile(profile: Profile) {
     else if (s.meId) delete avatars[s.meId];
     return { profile, avatars };
   });
-  session?.setIdentity({ name: profile.name, color: profile.color, avatar: profile.avatar });
+  session?.setIdentity({ name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet });
 }
 
 export function updateProfile(patch: Partial<Omit<Profile, 'id'>>) {
@@ -1049,7 +1054,7 @@ function syncFromOtherWindow(e: StorageEvent) {
   if (e.key === SYNCED_KEYS.profile) {
     const profile = loadProfile();
     const current = getApp().profile;
-    if (profile.name !== current.name || profile.color !== current.color || profile.avatar !== current.avatar) applyProfile(profile);
+    if (profile.name !== current.name || profile.color !== current.color || profile.avatar !== current.avatar || JSON.stringify(profile.planet) !== JSON.stringify(current.planet)) applyProfile(profile);
   } else if (e.key === SYNCED_KEYS.settings) {
     applySettings(loadSettings());
   }

@@ -350,7 +350,7 @@ kbd {
   color: var(--text-3);
 }
 
-.field input:not([type='range']):not([type='radio']),
+.field input:not([type='range']):not([type='radio']):not([type='color']),
 .field select,
 .field textarea {
   width: 100%;
@@ -564,7 +564,7 @@ input[type='range'] {
   user-select: none;
 }
 
-/* anel de Saturno do host: metade de trás atrás do planeta, metade da frente na frente */
+/* anéis: metade de trás atrás do planeta, metade da frente na frente */
 .planet__ring {
   position: absolute;
   left: -26%;
@@ -572,10 +572,19 @@ input[type='range'] {
   top: 37%;
   bottom: 37%;
   border-radius: 50%;
-  border: max(1.5px, calc(var(--size) * 0.055)) solid var(--sun);
-  transform: rotate(-16deg);
+  border: max(1.5px, calc(var(--size) * 0.055)) solid var(--ring, #c4b5fd);
+  transform: rotate(var(--tilt, -16deg));
   pointer-events: none;
-  filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.45));
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ring, #c4b5fd) 45%, transparent));
+}
+
+.planet__ring--outer {
+  left: -42%;
+  right: -42%;
+  top: 33%;
+  bottom: 33%;
+  border-width: max(1px, calc(var(--size) * 0.03));
+  opacity: 0.8;
 }
 
 .planet__ring--back {
@@ -586,6 +595,122 @@ input[type='range'] {
 .planet__ring--front {
   z-index: 2;
   clip-path: inset(50% 0 0 0);
+}
+
+/* texturas (por cima da cor, por baixo da inicial) */
+.planet__texture {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.tex-stripes {
+  background: repeating-linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.2) 0 9%,
+    transparent 9% 17%,
+    rgba(0, 0, 0, 0.2) 17% 23%,
+    transparent 23% 31%
+  );
+}
+
+.tex-craters {
+  background:
+    radial-gradient(circle at 30% 34%, rgba(0, 0, 0, 0.32) 0 7%, rgba(255, 255, 255, 0.18) 8% 9.5%, transparent 10%),
+    radial-gradient(circle at 66% 60%, rgba(0, 0, 0, 0.3) 0 10%, rgba(255, 255, 255, 0.16) 11% 12.5%, transparent 13%),
+    radial-gradient(circle at 42% 74%, rgba(0, 0, 0, 0.28) 0 5%, rgba(255, 255, 255, 0.15) 6% 7%, transparent 7.5%),
+    radial-gradient(circle at 72% 28%, rgba(0, 0, 0, 0.26) 0 4%, transparent 5%);
+}
+
+.tex-spots {
+  background:
+    radial-gradient(ellipse 22% 14% at 34% 40%, rgba(255, 255, 255, 0.26), transparent 70%),
+    radial-gradient(ellipse 16% 12% at 64% 66%, rgba(0, 0, 0, 0.24), transparent 70%),
+    radial-gradient(ellipse 12% 9% at 70% 34%, rgba(255, 255, 255, 0.2), transparent 70%),
+    radial-gradient(ellipse 14% 10% at 36% 72%, rgba(0, 0, 0, 0.2), transparent 70%);
+}
+
+.tex-clouds {
+  background:
+    radial-gradient(ellipse 40% 12% at 36% 30%, rgba(255, 255, 255, 0.42), transparent 70%),
+    radial-gradient(ellipse 46% 10% at 62% 52%, rgba(255, 255, 255, 0.34), transparent 70%),
+    radial-gradient(ellipse 34% 9% at 40% 74%, rgba(255, 255, 255, 0.3), transparent 70%);
+}
+
+/* luas: giram em volta do planeta */
+.planet__orbit {
+  position: absolute;
+  inset: -22%;
+  z-index: 3;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: moon-orbit 9s linear infinite;
+}
+
+.planet__orbit--2 {
+  inset: -34%;
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+
+.planet__orbit--3 {
+  inset: -12%;
+  animation-duration: 6.5s;
+  animation-delay: -3s;
+}
+
+.planet__moon {
+  position: absolute;
+  top: -4%;
+  left: 50%;
+  width: max(4px, calc(var(--size) * 0.16));
+  height: max(4px, calc(var(--size) * 0.16));
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--moon, #e2e8f0) 45%, color-mix(in srgb, var(--moon, #e2e8f0) 55%, #000));
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.planet__orbit--2 .planet__moon {
+  width: max(3px, calc(var(--size) * 0.11));
+  height: max(3px, calc(var(--size) * 0.11));
+}
+
+.planet__orbit--3 .planet__moon {
+  width: max(3px, calc(var(--size) * 0.09));
+  height: max(3px, calc(var(--size) * 0.09));
+}
+
+@keyframes moon-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* brilho/atmosfera */
+.planet.has-glow .planet__body {
+  box-shadow:
+    inset calc(var(--size) * -0.08) calc(var(--size) * -0.12) calc(var(--size) * 0.22) rgba(0, 0, 0, 0.35),
+    0 0 calc(var(--size) * 0.12) calc(var(--size) * 0.03) var(--glow, #22d3ee),
+    0 0 calc(var(--size) * 0.4) calc(var(--size) * 0.06) color-mix(in srgb, var(--glow, #22d3ee) 45%, transparent);
+}
+
+/* coroa do host */
+.planet__crown {
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--size) * -0.3);
+  left: 50%;
+  width: max(11px, calc(var(--size) * 0.42));
+  height: max(11px, calc(var(--size) * 0.42));
+  transform: translateX(-50%) rotate(-8deg);
+  fill: var(--sun);
+  stroke: #7c2d12;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
+  pointer-events: none;
 }
 
 .planet.is-speaking .planet__body {

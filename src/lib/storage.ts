@@ -1,5 +1,6 @@
 import { COSMIC_NAMES, PLANET_COLORS } from './config';
 import { DEFAULT_KEYBINDS, sanitizeKeybinds, type Keybinds } from './keybinds';
+import { sanitizePlanet, type PlanetStyle } from './planet';
 import type { LiveQuality } from './protocol';
 import { randomId } from './util';
 
@@ -9,6 +10,8 @@ export interface Profile {
   color: string;
   /** Foto (data URL webp/jpeg, 160x160). */
   avatar?: string;
+  /** Textura, anéis, luas e brilho do planeta. */
+  planet?: PlanetStyle;
 }
 
 export interface NetworkSettings {
@@ -114,7 +117,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sounds: true,
   network: DEFAULT_NETWORK,
   keybinds: DEFAULT_KEYBINDS,
-  version: 2,
+  version: 3,
 };
 
 const NOISE_FILTERS: NoiseFilter[] = ['off', 'browser', 'rnnoise', 'gtcrn'];
@@ -154,6 +157,8 @@ export function loadProfile(): Profile {
     color: validColor ? (saved!.color as string) : pick(PLANET_COLORS),
   };
   if (validAvatar(saved?.avatar)) profile.avatar = saved!.avatar as string;
+  const planet = sanitizePlanet(saved?.planet);
+  if (planet) profile.planet = planet;
   // só grava quando precisou inventar algo (gravar à toa avisaria as outras janelas)
   if (!validId || !validName || !validColor) write(PROFILE_KEY, profile);
   return profile;
@@ -182,6 +187,8 @@ export function loadSettings(): Settings {
     keybinds: sanitizeKeybinds(saved.keybinds),
     version: DEFAULT_SETTINGS.version,
   };
+  // versão 3: transmitir o som da live voltou a ser o padrão para todo mundo
+  if ((saved.version ?? 1) < 3) settings.liveAudio = true;
   delete settings.noiseSuppression;
   return settings;
 }

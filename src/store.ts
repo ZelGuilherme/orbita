@@ -91,6 +91,8 @@ export interface AppState {
   updateReady: boolean;
   /** Já fechei a dica da janela flutuante nesta live. */
   floatTipClosed: boolean;
+  /** Mostrar a prévia da minha live mesmo transmitindo a tela inteira (espelho infinito). */
+  ownPreview: boolean;
   /** Janela flutuante (sempre por cima) com a prévia da live e os efeitos. */
   floating: boolean;
 }
@@ -130,6 +132,7 @@ const roomDefaults = () => ({
   memberCard: null,
   tool: null,
   floatTipClosed: false,
+  ownPreview: false,
   floating: false,
   modal: null,
 });

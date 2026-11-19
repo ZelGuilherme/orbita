@@ -85,16 +85,22 @@ function FloatingLive() {
   const live = useApp((s) => s.live);
   const members = useApp((s) => s.room?.members ?? EMPTY);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const surface = useApp((s) => s.liveSurface);
+  const ownPreview = useApp((s) => s.ownPreview);
 
   useEffect(() => {
     if (!live) closeFloating();
   }, [live]);
 
   if (!stream || !meId || !live) return null;
+  // tela inteira: sem a imagem (a janela flutuante apareceria dentro dela mesma)
+  const hide = surface === 'monitor' && !ownPreview;
+  const settings = stream.getVideoTracks()[0]?.getSettings();
+  const aspect = settings?.width && settings.height ? settings.width / settings.height : 16 / 9;
   return (
     <div className="floating tile tile--live tile--big">
-      <VideoEl stream={stream} contain videoRef={videoRef} />
-      <FxLayer streamerId={meId} videoRef={videoRef} members={members} tool={null} />
+      {hide ? <div className="own-live own-live--floating" /> : <VideoEl stream={stream} contain videoRef={videoRef} />}
+      <FxLayer streamerId={meId} videoRef={videoRef} members={members} tool={null} aspect={hide ? aspect : undefined} />
       <div className="tile__label">
         <span className="live-badge">AO VIVO</span>
         <span className="floating__viewers">

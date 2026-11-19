@@ -16,6 +16,7 @@ import {
 } from './config';
 import { addToStrokes, allowFx, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
+import { sanitizePlanet } from './planet';
 import { validAvatar } from './storage';
 import type {
   AdminAction,
@@ -302,6 +303,7 @@ export class Hub {
       case 'profile':
         me.name = sanitizeName(msg.name);
         me.color = sanitizeColor(msg.color);
+        if ('planet' in msg) me.planet = sanitizePlanet(msg.planet);
         if ('avatar' in msg) this.setAvatar(me.id, msg.avatar);
         this.pushState();
         return;
@@ -368,6 +370,7 @@ export class Hub {
       peerId: info.peerId,
       name: sanitizeName(info.name),
       color: sanitizeColor(info.color),
+      planet: sanitizePlanet(info.planet),
       joinedAt: prev?.joinedAt ?? this.nextJoinedAt(msg.rejoinAt),
       voiceChannelId: null,
       micOn: true,

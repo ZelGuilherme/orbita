@@ -4,7 +4,7 @@ import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
 import { loadLiveVolumes, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type Profile, type Settings } from './lib/storage';
 
-export type SettingsTab = 'perfil' | 'voz' | 'filtros' | 'live' | 'atalhos' | 'rede' | 'sobre';
+export type SettingsTab = 'perfil' | 'voz' | 'live' | 'atalhos' | 'rede' | 'sobre';
 
 export type Modal =
   | { kind: 'settings'; tab?: SettingsTab }

@@ -256,6 +256,14 @@
   cursor: ew-resize;
 }
 
+.meter__range:disabled {
+  cursor: default;
+}
+
+.meter__range:disabled::-webkit-slider-thumb {
+  transition: transform 0.25s ease;
+}
+
 .meter__range::-webkit-slider-runnable-track {
   height: 100%;
   background: transparent;

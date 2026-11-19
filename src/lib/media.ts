@@ -51,6 +51,9 @@ const CAMERA = {
 
 /** Chamadas recebidas ganham alguns segundos antes de serem descartadas (o estado pode estar atrasado). */
 const INCOMING_GRACE_MS = 6_000;
+/** De quanto em quanto tempo as conexões são conferidas, e quanto tempo sem nada chegar conta como travada. */
+const STALL_CHECK_MS = 2_000;
+const STALL_MS = 6_000;
 
 export interface MediaEvents {
   streams(voice: Record<string, MediaStream>, live: Record<string, MediaStream>): void;
@@ -58,6 +61,8 @@ export interface MediaEvents {
   liveViewers(count: number): void;
   liveEnded(): void;
   liveDropped(streamerId: string): void;
+  /** A live que eu assisto parou de chegar (imagem e som), embora a conexão não tenha fechado. */
+  liveStalled(streamerId: string): void;
   cameraEnded(): void;
   micLost(): void;
 }
@@ -136,6 +141,11 @@ export class MediaEngine {
   private liveOut = new Map<string, MediaConnection>();
   private liveIn = new Map<string, MediaConnection>();
   private liveStreams = new Map<string, MediaStream>();
+  /** Vigia das conexões (voz e lives que eu assisto): pacotes de áudio recebidos e há quanto tempo nada chega. */
+  private health = new WeakMap<MediaConnection, { packets: number; stillMs: number }>();
+  private watchdog = 0;
+  /** Som da live: a captura passa por aqui junto com um silêncio constante (o sinal de vida). */
+  private liveMix: { dest: MediaStreamAudioDestinationNode; source: MediaStreamAudioSourceNode | null } | null = null;
   /** O que vai para os espectadores: vídeo da captura + áudio da captura (ou mudo). */
   private liveSend: MediaStream | null = null;
   private liveOpts: LiveOptions = { quality: '720p', audio: true, motion: true };
@@ -406,6 +416,7 @@ export class MediaEngine {
       link.stream = stream;
       this.retryCount.delete(link.peerId);
       this.emitStreams();
+      this.startWatchdog();
     });
     call.on('close', () => this.dropVoice(link, true));
     call.on('error', (err) => console.warn('[voz]', member.name, err.type));
@@ -558,7 +569,7 @@ export class MediaEngine {
     this.screenStream = stream;
     this.liveOpts = opts;
     const sendVideo = video ?? this.blank();
-    const sendAudio = audio ?? this.silent();
+    const sendAudio = this.liveAudioTrack(audio);
     if (!this.liveSend) {
       this.liveSend = new MediaStream([sendVideo, sendAudio]);
     } else {
@@ -591,9 +602,36 @@ export class MediaEngine {
     this.tuneLive(pc);
   }
 
+  /**
+   * O som que vai para quem assiste: a captura (se houver) misturada a um silêncio constante.
+   * Sem isso, uma live sem som (ou cuja captura fica sem dados quando nada toca) não manda pacote
+   * nenhum, e quem assiste não teria como saber se a conexão travou.
+   */
+  private liveAudioTrack(capture: MediaStreamTrack | undefined): MediaStreamTrack {
+    const ctx = this.context();
+    if (!this.liveMix) {
+      const dest = ctx.createMediaStreamDestination();
+      dest.channelCount = 2;
+      const keepAlive = ctx.createConstantSource();
+      keepAlive.offset.value = 0;
+      keepAlive.connect(dest);
+      keepAlive.start();
+      this.liveMix = { dest, source: null };
+    }
+    const mix = this.liveMix;
+    mix.source?.disconnect();
+    mix.source = capture ? ctx.createMediaStreamSource(new MediaStream([capture])) : null;
+    mix.source?.connect(mix.dest);
+    return mix.dest.stream.getAudioTracks()[0];
+  }
+
   stopLive() {
     for (const id of [...this.liveOut.keys()]) this.closeLiveOut(id, false);
     this.liveSend = null;
+    if (this.liveMix?.source) {
+      this.liveMix.source.disconnect();
+      this.liveMix.source = null;
+    }
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
       this.screenStream = null;
@@ -682,15 +720,83 @@ export class MediaEngine {
       this.emitStreams();
       if (this.watching.has(streamerId)) this.ev.liveDropped(streamerId);
     });
+    this.startWatchdog();
   }
 
-  dropLive(streamerId: string) {
-    this.watching.delete(streamerId);
+  /**
+   * Uma conexão (voz ou live) pode ficar presa sem fechar: a rede oscilou, o roteador trocou de
+   * rota, e o som e a imagem congelam para sempre. Toda faixa de áudio do Órbita manda pacotes o
+   * tempo todo (até muda ou desativada: ver silent() e liveAudioTrack()), então, se nada chega
+   * por alguns segundos, a conexão travou e é refeita.
+   */
+  private startWatchdog() {
+    if (this.watchdog) return;
+    this.watchdog = window.setInterval(() => void this.checkConnections(), STALL_CHECK_MS);
+  }
+
+  private async checkConnections() {
+    if ((this.liveIn.size === 0 && this.voice.size === 0) || this.destroyed) {
+      window.clearInterval(this.watchdog);
+      this.watchdog = 0;
+      this.health = new WeakMap();
+      return;
+    }
+    for (const [streamerId, call] of [...this.liveIn]) {
+      // ainda conectando: quem cuida é o tempo limite do pedido
+      if (!this.liveStreams.has(streamerId)) continue;
+      if (await this.stalled(call)) {
+        if (this.liveIn.get(streamerId) !== call) continue;
+        console.warn('[live] travou, reconectando', streamerId);
+        this.resetLive(streamerId);
+        this.ev.liveStalled(streamerId);
+      }
+    }
+    for (const link of [...this.voice.values()]) {
+      if (!link.stream) continue;
+      if (await this.stalled(link.call)) {
+        if (this.voice.get(link.peerId) !== link) continue;
+        console.warn('[voz] travou, reconectando', link.memberId);
+        this.dropVoice(link, true);
+      }
+    }
+  }
+
+  /** Nada chegou nesta conexão nos últimos segundos? */
+  private async stalled(call: MediaConnection): Promise<boolean> {
+    const pc = call.peerConnection;
+    if (!pc) return false;
+    if (pc.connectionState === 'failed') return true;
+    let packets = 0;
+    try {
+      const stats = await pc.getStats();
+      stats.forEach((r) => {
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') packets += Number(r.packetsReceived) || 0;
+      });
+    } catch {
+      return false;
+    }
+    const health = this.health.get(call);
+    if (!health) {
+      this.health.set(call, { packets, stillMs: 0 });
+      return false;
+    }
+    health.stillMs = packets > health.packets ? 0 : health.stillMs + STALL_CHECK_MS;
+    health.packets = packets;
+    return health.stillMs >= STALL_MS;
+  }
+
+  /** Descarta a conexão de uma live que eu assisto, sem deixar de assistir (para pedir de novo). */
+  resetLive(streamerId: string) {
     const call = this.liveIn.get(streamerId);
     this.liveIn.delete(streamerId);
     const had = this.liveStreams.delete(streamerId);
     if (call) safeClose(call);
     if (had || call) this.emitStreams();
+  }
+
+  dropLive(streamerId: string) {
+    this.watching.delete(streamerId);
+    this.resetLive(streamerId);
   }
 
   // ───────────────────────── infraestrutura ─────────────────────────
@@ -734,7 +840,14 @@ export class MediaEngine {
   /** Faixa de áudio muda, para quem entra sem microfone. */
   private silent(): MediaStreamTrack {
     if (!this.silentTrack || this.silentTrack.readyState === 'ended') {
-      this.silentTrack = this.context().createMediaStreamDestination().stream.getAudioTracks()[0];
+      // sem nada ligado, a faixa não manda pacote nenhum: um silêncio constante a mantém viva
+      const ctx = this.context();
+      const dest = ctx.createMediaStreamDestination();
+      const keepAlive = ctx.createConstantSource();
+      keepAlive.offset.value = 0;
+      keepAlive.connect(dest);
+      keepAlive.start();
+      this.silentTrack = dest.stream.getAudioTracks()[0];
     }
     return this.silentTrack;
   }
@@ -829,12 +942,15 @@ export class MediaEngine {
     if (this.destroyed) return;
     this.leaveVoice();
     for (const id of [...this.liveIn.keys()]) this.dropLive(id);
+    window.clearInterval(this.watchdog);
+    this.watchdog = 0;
     this.watching.clear();
     this.destroyed = true;
     this.silentTrack?.stop();
     this.blankTrack?.stop();
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
+    this.liveMix = null;
     this.peer = null;
     this.state = null;
   }

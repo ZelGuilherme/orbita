@@ -109,9 +109,9 @@ async function joinRoom(user, code) {
   await waitFor(user.page, () => window.__orbita?.getApp().phase === 'room');
 }
 
+/** Quem cria ou entra na sala já cai na chamada sozinho. */
 async function joinCall(user) {
-  await user.page.getByRole('button', { name: /Entrar na chamada/ }).click();
-  await waitFor(user.page, () => window.__orbita.getApp().inCall);
+  await waitFor(user.page, () => window.__orbita.getApp().inCall, null, 15_000);
 }
 
 // ───────────────────────── cenários ─────────────────────────
@@ -120,12 +120,23 @@ async function joinCall(user) {
 async function chamadaCompleta(opened) {
   const a = await newUser('Ana', '#8b5cf6', opened);
   const b = await newUser('Bruno', '#22d3ee', opened);
-  const c = await newUser('Carla', '#f472b6', opened);
+  // a Carla vem de uma versão antiga, com os filtros desligados: a migração liga todos
+  const c = await newUser('Carla', '#f472b6', opened, undefined, { version: 3, noiseFilter: 'off', noiseGate: false, highpass: false, compressor: false, vadAuto: false });
   const code = await createRoom(a);
   await joinRoom(b, code);
   await joinRoom(c, code);
   await waitFor(a.page, () => window.__orbita.getApp().room?.members.length === 3);
   log('  sala', code, '→', await membersOf(a.page));
+  for (const u of [a, b, c]) await joinCall(u);
+  log('  todos caíram direto na chamada, de microfone mutado:', (await Promise.all([a, b, c].map((u) => u.page.evaluate(() => window.__orbita.getApp().micOn)))).join(', '));
+  for (const u of [a, c]) {
+    const f = await u.page.evaluate(() => {
+      const s = window.__orbita.getApp().settings;
+      return `${s.noiseFilter} portão=${s.noiseGate} graves=${s.highpass} compressor=${s.compressor} auto=${s.vadAuto}`;
+    });
+    if (f !== 'rnnoise portão=true graves=true compressor=true auto=true') throw new Error(`${u.name}: filtros fora do padrão: ${f}`);
+  }
+  log('  filtros ligados por padrão (e migrados para quem tinha desligado)');
 
   await b.page.locator('.composer textarea').fill('Olá @Ana! Testando a órbita 🚀 com **negrito**');
   await b.page.keyboard.press('Enter');
@@ -163,11 +174,37 @@ async function chamadaCompleta(opened) {
   if (!crown) throw new Error('o host (Ana) está sem a coroa');
   log('  planeta personalizado e coroa do host ok');
 
-  for (const u of [a, b, c]) await joinCall(u);
   for (const u of [a, b, c]) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);
   }
   log('  malha de voz completa');
+  const threshold = await a.page.evaluate(() => window.__orbitaMedia.voiceProc?.threshold);
+  if (!(threshold >= 0.22 && threshold <= 0.7)) throw new Error(`sensibilidade automática fora da faixa: ${threshold}`);
+  log('  sensibilidade automática ativa, limiar', threshold.toFixed(2));
+
+  // voz travada: o Bruno para de mandar para a Ana sem fechar a conexão; a voz é refeita sozinha
+  const bId = await b.page.evaluate(() => window.__orbita.getApp().meId);
+  await a.page.evaluate((id) => {
+    window.__oldVoice = window.__orbita.getApp().voiceStreams[id];
+  }, bId);
+  const aPeer = await a.page.evaluate(() => window.__orbita.session().peer.id);
+  await b.page.evaluate(async (peerId) => {
+    const link = window.__orbitaMedia.voice.get(peerId);
+    for (const sender of link.call.peerConnection.getSenders()) await sender.replaceTrack(null);
+  }, aPeer);
+  await waitFor(
+    a.page,
+    (id) => {
+      const now = window.__orbita.getApp().voiceStreams[id];
+      return !!now && now !== window.__oldVoice;
+    },
+    bId,
+    45_000,
+  );
+  for (const u of [a, b, c]) {
+    await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 30_000);
+  }
+  log('  voz travada foi reconectada sozinha');
   await a.page.waitForTimeout(1_000);
   await shot(a.page, 'chamada-orbita');
 
@@ -193,6 +230,34 @@ async function chamadaCompleta(opened) {
   const liveAudio = await a.page.evaluate(() => [...document.querySelectorAll('audio')].map((el) => Math.round(el.volume * 100)));
   if (!liveAudio.includes(35)) throw new Error(`volume da live não chegou no áudio: ${liveAudio}`);
   log('  volume da live ok:', liveAudio.join(', '));
+  // acima de 100%: o <audio> fica mudo e o som sai pelo Web Audio, com ganho
+  await a.page.locator('.live-volume input[type=range]').fill('250');
+  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(250));
+  await waitFor(a.page, () => [...document.querySelectorAll('audio')].some((el) => el.muted && el.srcObject?.getAudioTracks().length));
+  await a.page.locator('.live-volume input[type=range]').fill('100');
+  await waitFor(a.page, () => ![...document.querySelectorAll('audio')].some((el) => el.muted));
+  log('  volume da live até 300% ok');
+
+  // live travada: quem transmite para de mandar (imagem e som) sem fechar a conexão;
+  // quem assiste percebe sozinho e reconecta
+  await a.page.evaluate(() => {
+    window.__oldLive = Object.values(window.__orbita.getApp().liveStreams)[0];
+  });
+  await b.page.evaluate(async () => {
+    for (const call of window.__orbitaMedia.liveOut.values()) {
+      for (const sender of call.peerConnection.getSenders()) await sender.replaceTrack(null);
+    }
+  });
+  await waitFor(
+    a.page,
+    () => {
+      const now = Object.values(window.__orbita.getApp().liveStreams)[0];
+      return !!now && now !== window.__oldLive && [...document.querySelectorAll('.tile--live video')].some((v) => v.videoWidth > 0);
+    },
+    null,
+    40_000,
+  );
+  log('  live travada foi reconectada sozinha');
 
   // laser e lápis: aparecem para quem transmite e para quem assiste
   const laserOf = (page) =>

@@ -27,6 +27,7 @@ import {
 import { mentionsName } from './lib/markdown';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
+import { clampVolume, resumePlayback } from './lib/playback';
 import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { setSoundsEnabled, sfx } from './lib/sounds';
@@ -294,6 +295,11 @@ function mediaEvents(): MediaEvents {
       toast('Sua live foi encerrada.');
     },
     liveDropped: (streamerId) => requestLive(streamerId, true),
+    liveStalled: (streamerId) => {
+      const name = getApp().room?.members.find((m) => m.id === streamerId)?.name ?? 'alguém';
+      toast(`A live de ${name} travou. Reconectando…`);
+      requestLive(streamerId, true);
+    },
     cameraEnded: () => {
       setApp({ cameraOn: false, localCamera: null });
       sendPresence({ cameraOn: false });
@@ -381,7 +387,8 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null, unread: 0, mentions: 0 });
     history.replaceState(null, '', `#/sala/${created.code}`);
     if (mode === 'create') setApp({ modal: { kind: 'invite' } });
-    sfx.join();
+    // quem cria a sala e quem entra (pelo link ou pelo código) já cai na chamada, com o microfone como as configurações mandam
+    void joinCall();
   } catch (err) {
     resetRoomState();
     setApp({ phase: 'landing', landingError: describeError(err) });
@@ -692,6 +699,14 @@ export function unwatchLive(streamerId: string) {
   session?.send({ t: 'live:watch', streamerId, on: false });
 }
 
+/** Botão "Reconectar": refaz a conexão da live sem deixar de assistir. */
+export function reconnectLive(streamerId: string) {
+  if (!media || !getApp().watching[streamerId]) return;
+  media.resetLive(streamerId);
+  liveRetries.set(streamerId, 0);
+  requestLive(streamerId, false);
+}
+
 /** Abre a live de alguém em destaque (e começa a assistir). */
 export function openLive(streamerId: string) {
   const s = getApp();
@@ -702,7 +717,7 @@ export function openLive(streamerId: string) {
 }
 
 export function setLiveVolume(memberId: string, value: number) {
-  const liveVolumes = { ...getApp().liveVolumes, [baseId(memberId)]: value };
+  const liveVolumes = { ...getApp().liveVolumes, [baseId(memberId)]: clampVolume(value) };
   saveLiveVolumes(liveVolumes);
   setApp((s) => ({ liveVolumes, liveMutes: { ...s.liveMutes, [memberId]: value === 0 } }));
 }
@@ -852,7 +867,7 @@ function applySettings(settings: Settings) {
     void media.refreshMic();
   } else if (
     media &&
-    (changed('noiseFilter') || changed('highpass') || changed('compressor') || changed('noiseGate') || changed('inputGain') || changed('vadThreshold'))
+    (changed('noiseFilter') || changed('highpass') || changed('compressor') || changed('noiseGate') || changed('inputGain') || changed('vadThreshold') || changed('vadAuto'))
   ) {
     void media.updateVoice().then(() => {
       if (changed('noiseFilter') && media?.voiceFilterFailed) toast('Não consegui carregar essa supressão de ruído.', 'error');
@@ -879,7 +894,7 @@ export function updateSettings(patch: Partial<Settings>) {
 }
 
 export function setVolume(memberId: string, value: number) {
-  const volumes = { ...getApp().volumes, [baseId(memberId)]: value };
+  const volumes = { ...getApp().volumes, [baseId(memberId)]: clampVolume(value) };
   saveVolumes(volumes);
   setApp({ volumes });
 }
@@ -1099,7 +1114,10 @@ export function initController() {
   window.addEventListener('mouseup', onMouseUp);
   window.addEventListener('blur', () => setPushToTalk(false));
   // o navegador só libera áudio depois de um gesto: retoma os filtros de voz no primeiro clique/tecla
-  const resume = () => media?.resumeAudio();
+  const resume = () => {
+    media?.resumeAudio();
+    resumePlayback();
+  };
   window.addEventListener('pointerdown', resume, true);
   window.addEventListener('keydown', resume, true);
   if (import.meta.env.DEV) {

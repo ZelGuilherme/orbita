@@ -15,6 +15,7 @@ import {
   PhoneOff,
   PictureInPicture2,
   Radio,
+  RefreshCw,
   ScreenShare,
   Settings2,
   Square,
@@ -32,6 +33,7 @@ import {
   joinCall,
   leaveCall,
   openLive,
+  reconnectLive,
   setLiveVolume,
   stopLive,
   toggleCamera,
@@ -44,6 +46,7 @@ import {
 } from '../controller';
 import { baseId } from '../lib/hub';
 import { comboLabel } from '../lib/keybinds';
+import { MAX_VOLUME } from '../lib/playback';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor, roomInitials } from '../lib/util';
 import { setApp, useApp, voiceChannelOf } from '../store';
@@ -478,6 +481,11 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
             </IconButton>
           )}
           {showVideo && !isMe && (
+            <IconButton label="Reconectar a live (se travou)" tipPos="bottom" onClick={() => reconnectLive(m.id)}>
+              <RefreshCw size={16} />
+            </IconButton>
+          )}
+          {showVideo && !isMe && (
             <IconButton label="Picture-in-picture" tipPos="bottom" onClick={pip}>
               <PictureInPicture2 size={16} />
             </IconButton>
@@ -536,11 +544,11 @@ function LiveVolume({ member }: { member: Member }) {
       <input
         type="range"
         min={0}
-        max={100}
-        step={1}
+        max={MAX_VOLUME}
+        step={5}
         value={value}
         aria-label="Volume da live"
-        style={{ '--fill': `${value}%` } as CSSProperties}
+        style={{ '--fill': `${(value / MAX_VOLUME) * 100}%` } as CSSProperties}
         onChange={(e) => setLiveVolume(member.id, Number(e.target.value))}
       />
       <span className="live-volume__value">{value}%</span>

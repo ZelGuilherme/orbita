@@ -22,8 +22,10 @@ export interface VoiceOptions {
   noiseGate: boolean;
   /** % (100 = sem alteração). */
   inputGain: number;
-  /** 0..1 na escala do medidor. */
+  /** 0..1 na escala do medidor (modo manual). */
   threshold: number;
+  /** O limiar acompanha sozinho o ruído de fundo. */
+  autoThreshold: boolean;
 }
 
 export const voiceOptions = (s: Settings): VoiceOptions => ({
@@ -33,6 +35,7 @@ export const voiceOptions = (s: Settings): VoiceOptions => ({
   noiseGate: s.noiseGate,
   inputGain: s.inputGain,
   threshold: s.vadThreshold,
+  autoThreshold: s.vadAuto,
 });
 
 /** Com supressão por IA, a do navegador fica desligada (as duas juntas deixam a voz robótica). */
@@ -75,10 +78,12 @@ export class VoiceProcessor {
   readonly track: MediaStreamTrack;
   speaking = false;
   level = 0;
+  /** Limiar em uso agora (o automático muda com o ruído de fundo). */
+  threshold = 0;
   /** O filtro de IA pedido não carregou (sem internet, navegador antigo…). */
   suppressorFailed = false;
   onSpeaking: (on: boolean) => void = () => {};
-  onLevel: (level: number) => void = () => {};
+  onLevel: (level: number, threshold: number) => void = () => {};
 
   private source: MediaStreamAudioSourceNode;
   private gain: GainNode;
@@ -116,15 +121,17 @@ export class VoiceProcessor {
       channelCountMode: 'explicit',
       outputChannelCount: [1],
     });
-    this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate });
-    this.gate.port.onmessage = (e: MessageEvent<{ speaking?: boolean; level?: number }>) => {
+    this.threshold = opts.threshold;
+    this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate, auto: opts.autoThreshold });
+    this.gate.port.onmessage = (e: MessageEvent<{ speaking?: boolean; level?: number; threshold?: number }>) => {
       if (typeof e.data.speaking === 'boolean' && e.data.speaking !== this.speaking) {
         this.speaking = e.data.speaking;
         this.onSpeaking(this.speaking);
       }
       if (typeof e.data.level === 'number') {
         this.level = e.data.level;
-        this.onLevel(this.level);
+        if (typeof e.data.threshold === 'number') this.threshold = e.data.threshold;
+        this.onLevel(this.level, this.threshold);
       }
     };
     this.dest = ctx.createMediaStreamDestination();
@@ -154,7 +161,7 @@ export class VoiceProcessor {
       if (this.stopped) return;
       this.opts = opts;
       this.gain.gain.setTargetAtTime(opts.inputGain / 100, this.ctx.currentTime, 0.03);
-      this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate });
+      this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate, auto: opts.autoThreshold });
       await this.applySuppressor();
       this.wire();
     });

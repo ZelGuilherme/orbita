@@ -52,6 +52,8 @@ export interface Settings {
   inputGain: number;
   /** 0..1 — nível a partir do qual você "está falando". */
   vadThreshold: number;
+  /** Sensibilidade automática: o limiar acompanha o ruído de fundo (o vadThreshold fica guardado para o modo manual). */
+  vadAuto: boolean;
   voiceMode: VoiceMode;
   /** Entrar na chamada com o microfone desligado. */
   joinMuted: boolean;
@@ -101,11 +103,12 @@ export const DEFAULT_SETTINGS: Settings = {
   echoCancellation: true,
   autoGainControl: true,
   noiseFilter: 'rnnoise',
-  highpass: false,
-  compressor: false,
-  noiseGate: false,
+  highpass: true,
+  compressor: true,
+  noiseGate: true,
   inputGain: 100,
   vadThreshold: 0.32,
+  vadAuto: true,
   voiceMode: 'vad',
   joinMuted: true,
   cameraQuality: 'sd',
@@ -117,7 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sounds: true,
   network: DEFAULT_NETWORK,
   keybinds: DEFAULT_KEYBINDS,
-  version: 3,
+  version: 4,
 };
 
 const NOISE_FILTERS: NoiseFilter[] = ['off', 'browser', 'rnnoise', 'gtcrn'];
@@ -189,6 +192,15 @@ export function loadSettings(): Settings {
   };
   // versão 3: transmitir o som da live voltou a ser o padrão para todo mundo
   if ((saved.version ?? 1) < 3) settings.liveAudio = true;
+  // versão 4: todos os filtros de som ligados e a sensibilidade automática, para todo mundo
+  if ((saved.version ?? 1) < 4) {
+    settings.highpass = true;
+    settings.compressor = true;
+    settings.noiseGate = true;
+    settings.vadAuto = true;
+    if (settings.noiseFilter === 'off' || settings.noiseFilter === 'browser') settings.noiseFilter = 'rnnoise';
+  }
+  settings.vadAuto = settings.vadAuto !== false;
   delete settings.noiseSuppression;
   return settings;
 }

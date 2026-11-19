@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Volume2 } from 'lucide-react';
 import { baseId } from '../lib/hub';
+import { BoostedAudio, setPlaybackSink } from '../lib/playback';
 import type { Member } from '../lib/protocol';
 import { setApp, useApp } from '../store';
 
@@ -21,6 +22,7 @@ export function AudioRenderer() {
   const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   const sinkId = useApp((s) => s.settings.audioOutputId);
   const blocked = useApp((s) => s.audioBlocked);
+  useEffect(() => setPlaybackSink(sinkId), [sinkId]);
 
   return (
     <>
@@ -63,6 +65,24 @@ function unlockAudio() {
 
 function RemoteAudio({ stream, volume, muted, sinkId }: { stream: MediaStream; volume: number; muted: boolean; sinkId: string }) {
   const ref = useRef<HTMLAudioElement>(null);
+  const boostRef = useRef<BoostedAudio | null>(null);
+  // acima de 100% o som sai pelo Web Audio (com limitador); o <audio> continua tocando, mudo
+  const boosted = volume > 1;
+
+  useEffect(() => {
+    if (!boosted) return;
+    const boost = new BoostedAudio(stream, volume);
+    boostRef.current = boost;
+    return () => {
+      boost.stop();
+      boostRef.current = null;
+    };
+    // o volume entra pelo efeito de baixo; aqui só cria/desfaz o caminho
+  }, [boosted, stream]);
+
+  useEffect(() => {
+    boostRef.current?.setVolume(muted ? 0 : volume);
+  }, [boosted, stream, volume, muted]);
 
   useEffect(() => {
     const audio = ref.current;
@@ -78,8 +98,8 @@ function RemoteAudio({ stream, volume, muted, sinkId }: { stream: MediaStream; v
   }, [volume]);
 
   useEffect(() => {
-    if (ref.current) ref.current.muted = muted;
-  }, [muted]);
+    if (ref.current) ref.current.muted = muted || boosted;
+  }, [muted, boosted]);
 
   useEffect(() => {
     const audio = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;

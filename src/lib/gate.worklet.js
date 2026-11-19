@@ -4,16 +4,30 @@
 // (0..1, de -60 dB a -10 dB). Acima do limiar, a pessoa "está falando". Com o portão ligado,
 // o som só passa enquanto ela fala (e um pouco depois, para não cortar o fim das palavras).
 // A abertura é rápida e o fechamento é suave, sem estalos.
+//
+// Sensibilidade automática: o worklet acompanha o ruído de fundo (o nível nos momentos sem fala)
+// e põe o limiar uma margem acima dele. O ruído desce rápido e sobe devagar; enquanto a pessoa
+// fala, ele quase não sobe (a voz não pode virar "ruído").
 
 const HOLD_SECONDS = 0.32;
 const OPEN_SECONDS = 0.003;
 const CLOSE_SECONDS = 0.07;
 const REPORT_SECONDS = 0.05;
+// sensibilidade automática (escala 0..1 = 50 dB; 0.1 = 5 dB)
+const FLOOR_DOWN_SECONDS = 0.4;
+const FLOOR_UP_SECONDS = 4;
+const FLOOR_UP_SPEAKING_SECONDS = 40;
+const AUTO_MARGIN = 0.2;
+const AUTO_MIN = 0.22;
+const AUTO_MAX = 0.7;
 
 class OrbitaGate extends AudioWorkletProcessor {
   constructor() {
     super();
     this.threshold = 0.32;
+    this.manual = 0.32;
+    this.auto = false;
+    this.floor = 0.1;
     this.gate = false;
     this.open = false;
     this.quiet = 0;
@@ -24,8 +38,10 @@ class OrbitaGate extends AudioWorkletProcessor {
     this.closeCoef = Math.exp(-1 / (sampleRate * CLOSE_SECONDS));
     this.port.onmessage = (event) => {
       const data = event.data || {};
-      if (typeof data.threshold === 'number') this.threshold = data.threshold;
+      if (typeof data.threshold === 'number') this.manual = data.threshold;
+      if (typeof data.auto === 'boolean') this.auto = data.auto;
       if (typeof data.gate === 'boolean') this.gate = data.gate;
+      if (!this.auto) this.threshold = this.manual;
     };
   }
 
@@ -42,6 +58,13 @@ class OrbitaGate extends AudioWorkletProcessor {
     const level = Math.max(0, Math.min(1, (20 * Math.log10(rms + 1e-8) + 60) / 50));
     // medidor: sobe na hora, desce devagar
     this.level = level > this.level ? level : this.level * 0.9 + level * 0.1;
+
+    if (this.auto) {
+      const seconds = level < this.floor ? FLOOR_DOWN_SECONDS : this.open ? FLOOR_UP_SPEAKING_SECONDS : FLOOR_UP_SECONDS;
+      const k = 1 - Math.exp(-frames / (sampleRate * seconds));
+      this.floor += (level - this.floor) * k;
+      this.threshold = Math.max(AUTO_MIN, Math.min(AUTO_MAX, this.floor + AUTO_MARGIN));
+    }
 
     if (level > this.threshold) {
       this.quiet = 0;
@@ -73,7 +96,7 @@ class OrbitaGate extends AudioWorkletProcessor {
     this.sinceReport += frames;
     if (this.sinceReport >= sampleRate * REPORT_SECONDS) {
       this.sinceReport = 0;
-      this.port.postMessage({ level: this.level });
+      this.port.postMessage({ level: this.level, threshold: this.threshold });
     }
     return true;
   }

@@ -16,7 +16,6 @@ import {
   Radio,
   RefreshCw,
   Share2,
-  SlidersHorizontal,
   Square,
   SquareArrowOutUpRight,
   User,
@@ -146,7 +145,6 @@ function InviteModal({ onClose }: { onClose: () => void }) {
 const TABS: Array<[SettingsTab, string, ReactNode]> = [
   ['perfil', 'Perfil', <User size={17} key="u" />],
   ['voz', 'Voz e vídeo', <Mic size={17} key="m" />],
-  ['filtros', 'Filtros de som', <SlidersHorizontal size={17} key="f" />],
   ['live', 'Lives', <Radio size={17} key="r" />],
   ['atalhos', 'Atalhos', <Keyboard size={17} key="k" />],
   ['rede', 'Rede', <Wifi size={17} key="w" />],
@@ -175,7 +173,6 @@ function SettingsModal({ initial, onClose }: { initial?: SettingsTab; onClose: (
           </button>
           {tab === 'perfil' && <ProfileTab />}
           {tab === 'voz' && <VoiceTab goTo={setTab} />}
-          {tab === 'filtros' && <FiltersTab />}
           {tab === 'live' && <LiveTab />}
           {tab === 'atalhos' && <KeybindsTab />}
           {tab === 'rede' && <NetworkTab />}
@@ -417,8 +414,18 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
       {settings.voiceMode === 'vad' ? (
         <div className="field">
           <span>Sensibilidade da voz</span>
-          <MicMeter threshold />
-          <span className="hint">Arraste o marcador branco: acima dele você aparece falando (o anel verde). Com o portão de ruído ligado, abaixo dele nada é transmitido.</span>
+          <Switch
+            label="Ajustar automaticamente"
+            hint="O Órbita mede o ruído do seu ambiente e decide sozinho a partir de quando é voz."
+            checked={settings.vadAuto}
+            onChange={(vadAuto) => updateSettings({ vadAuto })}
+          />
+          <MicMeter threshold monitor />
+          <span className="hint">
+            {settings.vadAuto
+              ? 'O marcador branco mostra o limiar automático: acima dele você aparece falando (o anel verde) e, com o portão de ruído, abaixo dele nada é transmitido.'
+              : 'Arraste o marcador branco: acima dele você aparece falando (o anel verde). Com o portão de ruído ligado, abaixo dele nada é transmitido.'}
+          </span>
         </div>
       ) : (
         <div className="field">
@@ -433,6 +440,9 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
         </div>
       )}
 
+      <VoiceFilters testMeter={settings.voiceMode !== 'vad'} />
+
+      <h4 className="settings__subtitle">Câmera e outros</h4>
       <div className="grid-2">
         <DeviceSelect
           label="Câmera"
@@ -471,12 +481,13 @@ const NOISE_OPTIONS: Array<{ id: NoiseFilter; title: string; hint: string }> = [
   { id: 'gtcrn', title: 'IA forte (GTCRN)', hint: 'Mais limpa, usa mais processador' },
 ];
 
-function FiltersTab() {
+/** Filtros do microfone (dentro de "Voz e vídeo"). */
+function VoiceFilters({ testMeter }: { testMeter: boolean }) {
   const settings = useApp((s) => s.settings);
   return (
     <>
-      <h3 className="settings__title">Filtros de som</h3>
-      <p className="muted">Os filtros rodam no seu computador antes da voz sair. Teste e ouça o resultado aqui embaixo.</p>
+      <h4 className="settings__subtitle">Filtros de som</h4>
+      <p className="muted">Rodam no seu computador antes da voz sair. Teste e ouça o resultado no medidor.</p>
       <div className="field">
         <span>Supressão de ruído</span>
         <div className="choice-grid choice-grid--4">
@@ -490,7 +501,7 @@ function FiltersTab() {
       </div>
       <Switch
         label="Portão de ruído"
-        hint="Fecha o microfone entre as falas: só transmite acima da sensibilidade (ajuste em Voz e vídeo)."
+        hint="Fecha o microfone entre as falas: só transmite acima da sensibilidade."
         checked={settings.noiseGate}
         onChange={(noiseGate) => updateSettings({ noiseGate })}
       />
@@ -530,10 +541,12 @@ function FiltersTab() {
           onChange={(e) => updateSettings({ inputGain: Number(e.target.value) })}
         />
       </label>
-      <div className="field">
-        <span>Testar</span>
-        <MicMeter monitor />
-      </div>
+      {testMeter && (
+        <div className="field">
+          <span>Testar</span>
+          <MicMeter monitor />
+        </div>
+      )}
     </>
   );
 }
@@ -544,6 +557,7 @@ function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boole
   const [on, setOn] = useState(false);
   const [listen, setListen] = useState(false);
   const [level, setLevel] = useState(0);
+  const [liveThreshold, setLiveThreshold] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [track, setTrack] = useState<MediaStreamTrack | null>(null);
   const proc = useRef<VoiceProcessor | null>(null);
@@ -570,7 +584,10 @@ function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boole
         if (cancelled) return;
         p = await VoiceProcessor.create(stream.getAudioTracks()[0], voiceOptions(getApp().settings));
         if (cancelled) return;
-        p.onLevel = setLevel;
+        p.onLevel = (l, t) => {
+          setLevel(l);
+          setLiveThreshold(t);
+        };
         p.onSpeaking = setOpen;
         proc.current = p;
         setTrack(p.track);
@@ -589,14 +606,17 @@ function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boole
       stream?.getTracks().forEach((t) => t.stop());
       setTrack(null);
       setLevel(0);
+      setLiveThreshold(null);
       setOpen(false);
     };
   }, [on, audioInputId, echoCancellation, autoGainControl, browserNs]);
 
-  const { noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold } = settings;
+  const { noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto } = settings;
   useEffect(() => {
     void proc.current?.update(voiceOptions(getApp().settings));
-  }, [noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold]);
+  }, [noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto]);
+  // no automático, o marcador acompanha o limiar calculado (sem teste ligado, fica no valor de partida)
+  const shownThreshold = vadAuto ? (liveThreshold ?? 0.22) : vadThreshold;
 
   useEffect(() => {
     const el = audio.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
@@ -621,7 +641,8 @@ function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boole
             min={0.05}
             max={0.9}
             step={0.01}
-            value={vadThreshold}
+            value={shownThreshold}
+            disabled={vadAuto}
             onChange={(e) => updateSettings({ vadThreshold: Number(e.target.value) })}
             aria-label="Sensibilidade da voz"
           />

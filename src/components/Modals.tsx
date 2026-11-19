@@ -61,7 +61,7 @@ import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
 import { VoiceProcessor, voiceOptions } from '../lib/voice';
 import { getApp, setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
 import { canFloat, openFloating } from './Floating';
-import { Swatches } from './Landing';
+import { AvatarButtons, Swatches } from './Landing';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx, IconButton, Modal, Switch } from './ui';
@@ -200,7 +200,10 @@ function ProfileTab() {
     <>
       <h3 className="settings__title">Perfil</h3>
       <div className="profile-preview">
-        <Planet name={name || '?'} color={profile.color} size={92} host={isHost} />
+        <div className="avatar-edit">
+          <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} size={92} host={isHost} />
+          <AvatarButtons />
+        </div>
         <label className="field">
           <span>Seu nome</span>
           <input
@@ -375,6 +378,12 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
         </label>
       </div>
       <Switch
+        label="Entrar na chamada com o microfone desligado"
+        hint="Você liga quando quiser falar."
+        checked={settings.joinMuted}
+        onChange={(joinMuted) => updateSettings({ joinMuted })}
+      />
+      <Switch
         label="Sons da interface"
         hint="Entrar e sair da chamada, mensagens, menções e lives."
         checked={settings.sounds}
@@ -387,7 +396,7 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
 const NOISE_OPTIONS: Array<{ id: NoiseFilter; title: string; hint: string }> = [
   { id: 'off', title: 'Desligada', hint: 'Som cru do microfone' },
   { id: 'browser', title: 'Padrão', hint: 'A do navegador, leve' },
-  { id: 'rnnoise', title: 'IA (RNNoise)', hint: 'Corta teclado, ventilador e rua' },
+  { id: 'rnnoise', title: 'IA (RNNoise)', hint: 'Recomendado: corta teclado, ventilador e rua' },
   { id: 'gtcrn', title: 'IA forte (GTCRN)', hint: 'Mais limpa, usa mais processador' },
 ];
 
@@ -1026,8 +1035,9 @@ function LiveTips() {
           <b>Tela inteira:</b> ative <i>compartilhar áudio do sistema</i>. O som do Órbita é removido automaticamente.
         </li>
         <li>
-          <b>Um monitor não aparece na lista?</b> Alguns navegadores (como o Brave em notebooks com duas placas de vídeo) listam só um dos
-          monitores. Transmita a janela que você quer mostrar, ou use o Edge/Chrome para a tela inteira.
+          <b>Um monitor (ou as janelas dele) não aparece?</b> Em notebooks com duas placas de vídeo, o navegador rodando na placa dedicada
+          não enxerga a tela ligada à integrada. No Windows: Configurações › Sistema › Tela › Gráficos › escolha o navegador › “Economia
+          de energia”, e reabra o navegador.
         </li>
       </ul>
     </details>
@@ -1076,7 +1086,7 @@ function LeaveModal({ onClose }: { onClose: () => void }) {
         {candidates.map((m) => (
           <label key={m.id} className={cx('radio-row', target === m.id && 'is-on')}>
             <input type="radio" name="new-host" checked={target === m.id} onChange={() => setTarget(m.id)} />
-            <Planet name={m.name} color={m.color} size={32} />
+            <Planet memberId={m.id} name={m.name} color={m.color} size={32} />
             <span>{m.name}</span>
           </label>
         ))}

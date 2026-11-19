@@ -16,6 +16,7 @@ import {
 } from './config';
 import { addToStrokes, allowFx, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
+import { validAvatar } from './storage';
 import type {
   AdminAction,
   Attachment,
@@ -105,6 +106,7 @@ export class Hub {
   private fxLimits = new Map<string, FxLimits>();
   /** Desenhos do lápis em cada live, para quem começar a assistir depois. */
   private drawings = new Map<string, FxStroke[]>();
+  private avatars = new Map<string, string>();
   private statePending = false;
   private stopped = false;
 
@@ -241,6 +243,7 @@ export class Hub {
     this.state.members = this.state.members.filter((m) => m.id !== id);
     this.fxLimits.delete(id);
     this.drawings.delete(id);
+    this.avatars.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
     this.pushState();
   }
@@ -299,6 +302,7 @@ export class Hub {
       case 'profile':
         me.name = sanitizeName(msg.name);
         me.color = sanitizeColor(msg.color);
+        if ('avatar' in msg) this.setAvatar(me.id, msg.avatar);
         this.pushState();
         return;
       case 'fx': {
@@ -382,6 +386,8 @@ export class Hub {
     client.memberId = id;
     this.byMember.set(id, client);
     client.wire.send({ t: 'welcome', you: id, state: this.state, messages: this.messages } satisfies HubMsg);
+    this.setAvatar(id, info.avatar);
+    if (this.avatars.size) client.wire.send({ t: 'avatars', avatars: Object.fromEntries(this.avatars) } satisfies HubMsg);
     if (!prev && msg.rejoinAt == null) this.system(`**${member.name}** entrou na órbita.`);
     this.pushState();
   }
@@ -512,6 +518,14 @@ export class Hub {
   }
 
   // ───────────────────────── utilidades ─────────────────────────
+
+  private setAvatar(id: string, value: unknown) {
+    const avatar = validAvatar(value) ? value : null;
+    if ((this.avatars.get(id) ?? null) === avatar) return;
+    if (avatar) this.avatars.set(id, avatar);
+    else this.avatars.delete(id);
+    this.broadcast({ t: 'avatar', memberId: id, avatar });
+  }
 
   private member(id: string | null | undefined) {
     return id ? this.state.members.find((m) => m.id === id) : undefined;

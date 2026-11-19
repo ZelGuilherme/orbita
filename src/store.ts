@@ -52,6 +52,8 @@ export interface AppState {
   /** Quem está digitando: id → até quando. */
   typing: Record<string, number>;
   speaking: Record<string, boolean>;
+  /** Fotos de perfil de quem está na sala. */
+  avatars: Record<string, string>;
 
   // mídia local
   inCall: boolean;
@@ -103,6 +105,7 @@ const roomDefaults = () => ({
   messages: [],
   typing: {},
   speaking: {},
+  avatars: {},
   inCall: false,
   joiningVoice: false,
   micOn: true,

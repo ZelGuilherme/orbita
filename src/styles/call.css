@@ -477,6 +477,16 @@
   color: var(--text-3);
 }
 
+.ctrl--stop {
+  background: rgba(244, 63, 94, 0.18);
+  color: #fda4af;
+}
+
+.ctrl--stop:hover:not(:disabled) {
+  background: var(--live);
+  color: #fff;
+}
+
 .ctrl--leave {
   width: 66px;
   border-radius: 26px;

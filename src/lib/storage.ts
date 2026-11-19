@@ -7,6 +7,8 @@ export interface Profile {
   id: string;
   name: string;
   color: string;
+  /** Foto (data URL webp/jpeg, 160x160). */
+  avatar?: string;
 }
 
 export interface NetworkSettings {
@@ -48,6 +50,8 @@ export interface Settings {
   /** 0..1 — nível a partir do qual você "está falando". */
   vadThreshold: number;
   voiceMode: VoiceMode;
+  /** Entrar na chamada com o microfone desligado. */
+  joinMuted: boolean;
   cameraQuality: 'sd' | 'hd';
   liveQuality: LiveQuality;
   liveAudio: boolean;
@@ -59,6 +63,8 @@ export interface Settings {
   sounds: boolean;
   network: NetworkSettings;
   keybinds: Keybinds;
+  /** Versão das configurações salvas (para migrar padrões antigos). */
+  version: number;
 }
 
 /** Preferências da interface (só deste navegador). */
@@ -91,13 +97,14 @@ export const DEFAULT_SETTINGS: Settings = {
   videoInputId: '',
   echoCancellation: true,
   autoGainControl: true,
-  noiseFilter: 'browser',
+  noiseFilter: 'rnnoise',
   highpass: false,
   compressor: false,
   noiseGate: false,
   inputGain: 100,
   vadThreshold: 0.32,
   voiceMode: 'vad',
+  joinMuted: true,
   cameraQuality: 'sd',
   liveQuality: '720p',
   liveAudio: true,
@@ -107,6 +114,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sounds: true,
   network: DEFAULT_NETWORK,
   keybinds: DEFAULT_KEYBINDS,
+  version: 2,
 };
 
 const NOISE_FILTERS: NoiseFilter[] = ['off', 'browser', 'rnnoise', 'gtcrn'];
@@ -130,6 +138,11 @@ function write(key: string, value: unknown) {
 
 const pick = <T,>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)];
 
+/** Foto de perfil aceitável: imagem pequena em data URL. */
+export function validAvatar(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 80_000 && /^data:image\/(webp|jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(value);
+}
+
 export function loadProfile(): Profile {
   const saved = read<Profile>(PROFILE_KEY);
   const validId = typeof saved?.id === 'string' && /^[a-z0-9]{8,32}$/.test(saved.id);
@@ -140,6 +153,7 @@ export function loadProfile(): Profile {
     name: validName ? (saved!.name as string) : `${pick(COSMIC_NAMES)} ${Math.floor(Math.random() * 900 + 100)}`,
     color: validColor ? (saved!.color as string) : pick(PLANET_COLORS),
   };
+  if (validAvatar(saved?.avatar)) profile.avatar = saved!.avatar as string;
   // só grava quando precisou inventar algo (gravar à toa avisaria as outras janelas)
   if (!validId || !validName || !validColor) write(PROFILE_KEY, profile);
   return profile;
@@ -150,11 +164,13 @@ export const saveProfile = (profile: Profile) => write(PROFILE_KEY, profile);
 export function loadSettings(): Settings {
   const saved = (read<Settings>(SETTINGS_KEY) ?? {}) as Partial<Settings> & { noiseSuppression?: boolean };
   // versões antigas guardavam só "supressão de ruído: sim/não"
-  const noiseFilter = NOISE_FILTERS.includes(saved.noiseFilter as NoiseFilter)
+  let noiseFilter: NoiseFilter = NOISE_FILTERS.includes(saved.noiseFilter as NoiseFilter)
     ? (saved.noiseFilter as NoiseFilter)
     : saved.noiseSuppression === false
       ? 'off'
-      : 'browser';
+      : 'rnnoise';
+  // versão 2: a supressão por IA virou o padrão (quem estava no padrão antigo, do navegador, muda junto)
+  if ((saved.version ?? 1) < 2 && noiseFilter === 'browser') noiseFilter = 'rnnoise';
   const settings: Settings & { noiseSuppression?: boolean } = {
     ...DEFAULT_SETTINGS,
     ...saved,
@@ -164,6 +180,7 @@ export function loadSettings(): Settings {
     vadThreshold: clampNumber(saved.vadThreshold, 0.05, 0.9, DEFAULT_SETTINGS.vadThreshold),
     network: { ...DEFAULT_NETWORK, ...(saved.network ?? {}) },
     keybinds: sanitizeKeybinds(saved.keybinds),
+    version: DEFAULT_SETTINGS.version,
   };
   delete settings.noiseSuppression;
   return settings;

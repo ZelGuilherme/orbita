@@ -1,10 +1,12 @@
-import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { AppWindow, Crown, Download, Radio, Rocket, Settings, Shield, Sparkles, TriangleAlert } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { AppWindow, Camera, Crown, Download, Radio, Rocket, Settings, Shield, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
 import { createRoom, joinRoom, updateProfile } from '../controller';
 import { PLANET_COLORS, REPO_URL } from '../lib/config';
+import { imageToAvatar } from '../lib/images';
+import { errorMessage } from '../lib/util';
 import { appLikelyInstalled, canInstall, isStandalone, onInstallChange, openInApp, promptInstall } from '../lib/install';
 import { planetBackground, sanitizeName } from '../lib/util';
-import { setApp, useApp } from '../store';
+import { setApp, toast, useApp } from '../store';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx } from './ui';
@@ -25,6 +27,42 @@ export function Swatches({ value, onChange }: { value: string; onChange: (color:
         />
       ))}
     </div>
+  );
+}
+
+/** Adicionar, trocar e remover a foto do perfil (fica salva neste navegador e no app). */
+export function AvatarButtons() {
+  const avatar = useApp((s) => s.profile.avatar);
+  const input = useRef<HTMLInputElement>(null);
+  const pick = async (file: File) => {
+    try {
+      updateProfile({ avatar: await imageToAvatar(file) });
+    } catch (err) {
+      toast(`Não consegui usar essa foto: ${errorMessage(err)}`, 'error');
+    }
+  };
+  return (
+    <span className="avatar-buttons">
+      <button type="button" className="link-btn" onClick={() => input.current?.click()}>
+        <Camera size={14} /> {avatar ? 'Trocar foto' : 'Adicionar foto'}
+      </button>
+      {avatar && (
+        <button type="button" className="link-btn link-btn--danger" onClick={() => updateProfile({ avatar: undefined })}>
+          <Trash2 size={14} /> Remover
+        </button>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void pick(file);
+          e.target.value = '';
+        }}
+      />
+    </span>
   );
 }
 
@@ -116,7 +154,10 @@ export function Landing() {
           )}
 
           <div className="profile-picker">
-            <Planet name={name || '?'} color={profile.color} size={68} />
+            <div className="avatar-edit">
+              <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} size={68} />
+              <AvatarButtons />
+            </div>
             <div className="profile-picker__fields">
               <label className="field">
                 <span>Seu perfil</span>

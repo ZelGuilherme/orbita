@@ -216,7 +216,7 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
   return (
     <div className={cx('msg', head && 'msg--head', mentioned && 'msg--mention')}>
       {head ? (
-        <Planet name={message.authorName} color={message.authorColor} size={36} className="msg__avatar" />
+        <Planet memberId={message.authorId} name={message.authorName} color={message.authorColor} size={36} className="msg__avatar" />
       ) : (
         <time className="msg__hover-time">{formatTime(message.ts)}</time>
       )}

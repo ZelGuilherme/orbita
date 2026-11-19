@@ -20,6 +20,10 @@ interface Box {
 
 interface Laser {
   el: HTMLDivElement;
+  /** Rastro: os últimos pontos, que vão sumindo. */
+  trail: SVGGElement;
+  points: Array<{ x: number; y: number; t: number }>;
+  color: string;
   x: number;
   y: number;
   tx: number;
@@ -37,6 +41,20 @@ function contentBox(video: HTMLVideoElement | null, width: number, height: numbe
   const w = vw * scale;
   const h = vh * scale;
   return { left: (width - w) / 2, top: (height - h) / 2, width: w, height: h };
+}
+
+const TRAIL_MS = 420;
+
+/** Desenha o rastro do laser: segmentos que afinam e somem com a idade. */
+function drawTrail(l: Laser, now: number) {
+  const pts = l.points;
+  let html = '';
+  for (let i = 1; i < pts.length; i++) {
+    const life = 1 - (now - pts[i].t) / TRAIL_MS;
+    if (life <= 0) continue;
+    html += `<line x1="${pts[i - 1].x}" y1="${pts[i - 1].y}" x2="${pts[i].x}" y2="${pts[i].y}" stroke="${l.color}" stroke-opacity="${(life * 0.85).toFixed(2)}" stroke-width="${(1.5 + life * 5).toFixed(1)}" />`;
+  }
+  l.trail.innerHTML = html;
 }
 
 function pathOf(points: number[]): string {
@@ -61,6 +79,7 @@ export function FxLayer({
 }) {
   const layer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  const trails = useRef<SVGSVGElement>(null);
   const lasers = useRef(new Map<string, Laser>());
   const raf = useRef(0);
   const drawing = useRef(false);
@@ -123,6 +142,10 @@ export function FxLayer({
         l.x = l.own ? l.tx : l.x + (l.tx - l.x) * 0.6;
         l.y = l.own ? l.ty : l.y + (l.ty - l.y) * 0.6;
         l.el.style.transform = `translate(${(l.x * 100).toFixed(3)}cqw, ${(l.y * 100).toFixed(3)}cqh)`;
+        const last = l.points[l.points.length - 1];
+        if (!last || Math.abs(last.x - l.x) + Math.abs(last.y - l.y) > 0.0005) l.points.push({ x: l.x, y: l.y, t: now });
+        while (l.points.length && now - l.points[0].t > TRAIL_MS) l.points.shift();
+        drawTrail(l, now);
       }
       if (current.size) raf.current = requestAnimationFrame(frame);
     };
@@ -134,6 +157,7 @@ export function FxLayer({
       if (!l) return;
       current.delete(from);
       l.el.remove();
+      l.trail.remove();
     };
     const off = onFx((event) => {
       if (event.streamerId !== streamerId) return;
@@ -141,7 +165,7 @@ export function FxLayer({
         remove(event.from);
         return;
       }
-      if (event.fx.kind !== 'laser' || !stage.current) return;
+      if (event.fx.kind !== 'laser' || !stage.current || !trails.current) return;
       let l = current.get(event.from);
       if (!l) {
         const who = membersRef.current.find((m) => m.id === event.from);
@@ -153,7 +177,10 @@ export function FxLayer({
         label.textContent = who?.name ?? '';
         el.append(dot, label);
         stage.current.append(el);
-        l = { el, x: event.fx.x, y: event.fx.y, tx: event.fx.x, ty: event.fx.y, at: 0, own: event.from === meId };
+        const trail = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        trails.current.append(trail);
+        const color = who?.color ?? '#f43f5e';
+        l = { el, trail, points: [], color, x: event.fx.x, y: event.fx.y, tx: event.fx.x, ty: event.fx.y, at: 0, own: event.from === meId };
         current.set(event.from, l);
       }
       l.tx = event.fx.x;
@@ -165,7 +192,10 @@ export function FxLayer({
       off();
       cancelAnimationFrame(raf.current);
       raf.current = 0;
-      for (const l of current.values()) l.el.remove();
+      for (const l of current.values()) {
+        l.el.remove();
+        l.trail.remove();
+      }
       current.clear();
     };
   }, [streamerId, meId]);
@@ -224,6 +254,7 @@ export function FxLayer({
         onClick={(e) => tool && e.stopPropagation()}
         onDoubleClick={(e) => tool && e.stopPropagation()}
       >
+        <svg ref={trails} className="fx-draw fx-trails" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" />
         <svg className="fx-draw" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
           {strokes.map((s) => (
             <path key={`${s.from}:${s.id}`} d={pathOf(s.points)} stroke={colorOf(s.from)} />

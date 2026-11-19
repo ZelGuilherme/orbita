@@ -228,7 +228,7 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
       <div className="orbit__center">
         {center ? (
           <button type="button" className="orbit__center-btn" onClick={(e) => onPick(center, e.currentTarget)}>
-            <Planet name={center.name} color={center.color} size={g.center} host speaking={!!speaking[center.id]} live={!!center.live} />
+            <Planet memberId={center.id} name={center.name} color={center.color} size={g.center} host speaking={!!speaking[center.id]} live={!!center.live} />
             <span className="orbit__center-name">
               {center.name}
               {(center.serverMuted || !center.micOn || center.deafened) && <MicOff size={14} />}
@@ -269,7 +269,7 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
             if (e.key === 'Enter' || e.key === ' ') onPick(m, e.currentTarget);
           }}
         >
-          <Planet name={m.name} color={m.color} size={g.planet} speaking={!!speaking[m.id]} live={!!m.live} />
+          <Planet memberId={m.id} name={m.name} color={m.color} size={g.planet} speaking={!!speaking[m.id]} live={!!m.live} />
           <span className="orbit__label">
             {m.live && <span className="live-dot" />}
             {m.name}
@@ -401,11 +401,11 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         <VideoEl stream={stream} mirror={spec.kind === 'cam' && isMe} contain={spec.kind === 'live'} videoRef={spec.kind === 'live' ? videoRef : undefined} />
       ) : spec.kind === 'cam' ? (
         <div className="tile__planet">
-          <Planet name={m.name} color={m.color} size={big ? 128 : 76} speaking={speaking} host={m.id === hostId} />
+          <Planet memberId={m.id} name={m.name} color={m.color} size={big ? 128 : 76} speaking={speaking} host={m.id === hostId} />
         </div>
       ) : (
         <div className="live-placeholder">
-          <Planet name={m.name} color={m.color} size={big ? 96 : 56} live />
+          <Planet memberId={m.id} name={m.name} color={m.color} size={big ? 96 : 56} live />
           {watching ? (
             <span className="muted">
               <LoaderCircle size={16} className="spin" /> Conectando à live…
@@ -577,17 +577,28 @@ function CallControls() {
       >
         {cameraOn ? <Video /> : <VideoOff />}
       </button>
-      <button
-        type="button"
-        className={cx('ctrl', live && 'is-live')}
-        data-tip={!canShare ? 'Seu navegador não compartilha a tela' : live ? 'Opções da live' : 'Iniciar live'}
-        aria-label={live ? 'Opções da live' : 'Iniciar live'}
-        disabled={!canShare}
-        onClick={() => setApp({ modal: { kind: 'live' } })}
-      >
-        <ScreenShare />
-        {live && <span className="ctrl__tag ctrl__tag--live">AO VIVO</span>}
-      </button>
+      {live ? (
+        <>
+          <button type="button" className="ctrl is-live" data-tip="Opções da live" aria-label="Opções da live" onClick={() => setApp({ modal: { kind: 'live' } })}>
+            <Settings2 />
+            <span className="ctrl__tag ctrl__tag--live">AO VIVO</span>
+          </button>
+          <button type="button" className="ctrl ctrl--stop" data-tip="Encerrar live" aria-label="Encerrar live" onClick={stopLive}>
+            <Square />
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="ctrl"
+          data-tip={!canShare ? 'Seu navegador não compartilha a tela' : 'Iniciar live'}
+          aria-label="Iniciar live"
+          disabled={!canShare}
+          onClick={() => setApp({ modal: { kind: 'live' } })}
+        >
+          <ScreenShare />
+        </button>
+      )}
       <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
         <PhoneOff />
       </button>

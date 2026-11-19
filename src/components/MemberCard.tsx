@@ -46,7 +46,7 @@ export function MemberCard() {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="member-card__banner" style={{ background: `linear-gradient(135deg, ${member.color}, ${shade(member.color, -0.65)})` }} />
-        <Planet name={member.name} color={member.color} size={84} host={member.id === hostId} className="member-card__planet" />
+        <Planet memberId={member.id} name={member.name} color={member.color} size={84} host={member.id === hostId} className="member-card__planet" />
         <div className="member-card__body">
           <h3>
             {member.name} {isMe && <span className="muted">(você)</span>}

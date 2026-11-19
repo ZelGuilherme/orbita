@@ -37,6 +37,8 @@ export interface SessionHandlers {
   liveViewer(viewerId: string, viewerPeerId: string, on: boolean): void;
   fx(from: string, streamerId: string, fx: LiveFx): void;
   fxSync(streamerId: string, strokes: FxStroke[]): void;
+  avatars(avatars: Record<string, string>): void;
+  avatar(memberId: string, avatar: string | null): void;
   status(status: SessionStatus, detail?: 'loss' | 'transfer'): void;
   ended(reason: EndReason): void;
   becameHost(): void;
@@ -46,6 +48,7 @@ export interface Identity {
   id: string;
   name: string;
   color: string;
+  avatar?: string;
 }
 
 interface Migration {
@@ -157,7 +160,7 @@ export class Session {
 
   setIdentity(identity: Omit<Identity, 'id'>) {
     this.identity = { ...identity, id: this.meId };
-    this.send({ t: 'profile', name: identity.name, color: identity.color });
+    this.send({ t: 'profile', name: identity.name, color: identity.color, avatar: identity.avatar ?? null });
   }
 
   leave() {
@@ -227,7 +230,7 @@ export class Session {
     return {
       t: 'hello',
       v: PROTOCOL_VERSION,
-      member: { id: this.meId, peerId: this.peer.id, name: this.identity.name, color: this.identity.color },
+      member: { id: this.meId, peerId: this.peer.id, name: this.identity.name, color: this.identity.color, avatar: this.identity.avatar },
       presence: this.presence(),
       rejoinAt: rejoin ? me?.joinedAt : undefined,
     };
@@ -373,6 +376,12 @@ export class Session {
         return;
       case 'fx:sync':
         this.h.fxSync(msg.streamerId, msg.strokes);
+        return;
+      case 'avatars':
+        this.h.avatars(msg.avatars);
+        return;
+      case 'avatar':
+        this.h.avatar(msg.memberId, msg.avatar);
         return;
       case 'kicked':
         this.end(msg.ban ? 'banned' : 'kicked');

@@ -83,3 +83,21 @@ async function load(file: File): Promise<{ image: CanvasImageSource; width: numb
   }
   return { image: img, width: img.naturalWidth, height: img.naturalHeight, dispose: () => URL.revokeObjectURL(url) };
 }
+
+/** Foto de perfil: recorta o centro num quadrado de 160x160 (webp, ou jpeg se não houver webp). */
+export async function imageToAvatar(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = 160;
+  canvas.height = 160;
+  const g = canvas.getContext('2d');
+  if (!g) throw new Error('Não consegui processar a imagem.');
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 160, 160);
+  bitmap.close();
+  let url = canvas.toDataURL('image/webp', 0.86);
+  if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.86);
+  return url;
+}

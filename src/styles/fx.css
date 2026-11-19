@@ -51,6 +51,11 @@
   filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.7));
 }
 
+.fx-trails line {
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
 /* laser: posição pelo transform, quadro a quadro (sem transição atrasando) */
 .fx-laser {
   --c: #f43f5e;

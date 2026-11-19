@@ -136,7 +136,7 @@ function PersonRow({ member, host, me, speaking }: { member: Member; host: boole
   const muted = member.serverMuted || !member.micOn || member.deafened;
   return (
     <button type="button" className={cx('person', member.reconnecting && 'is-away')} onClick={(e) => openMemberCard(member.id, e.currentTarget)}>
-      <Planet name={member.name} color={member.color} size={34} host={host} speaking={speaking} live={!!member.live} />
+      <Planet memberId={member.id} name={member.name} color={member.color} size={34} host={host} speaking={speaking} live={!!member.live} />
       <span className="person__text">
         <span className={cx('person__name', host && 'is-host')}>
           {member.name}
@@ -198,7 +198,7 @@ function UserPanel() {
   return (
     <div className="user-panel">
       <button type="button" className="user-panel__me" onClick={() => setApp({ modal: { kind: 'settings', tab: 'perfil' } })} title="Editar perfil">
-        <Planet name={profile.name} color={profile.color} size={34} speaking={speaking} host={isHost} />
+        <Planet name={profile.name} color={profile.color} avatar={profile.avatar} size={34} speaking={speaking} host={isHost} />
         <span className="user-panel__text">
           <span className="user-panel__name">{profile.name}</span>
           <span className="user-panel__sub">{inCall ? 'na chamada' : `#${code}`}</span>

@@ -137,6 +137,14 @@ async function chamadaCompleta(opened) {
   await waitFor(b.page, () => !!document.querySelector('.reaction'));
   log('  chat e reação ok');
 
+  // foto de perfil: o Bruno escolhe uma foto e a Ana vê na lista de pessoas
+  const png = await b.page.screenshot({ clip: { x: 0, y: 0, width: 64, height: 64 } });
+  await b.page.getByRole('button', { name: 'Configurações' }).last().click();
+  await b.page.locator('.avatar-buttons input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: png });
+  await b.page.locator('.settings__close').click();
+  await waitFor(a.page, () => [...document.querySelectorAll('.people .person')].some((el) => el.textContent.includes('Bruno') && el.querySelector('img.planet__photo')), null, 10_000);
+  log('  foto de perfil ok');
+
   for (const u of [a, b, c]) await joinCall(u);
   for (const u of [a, b, c]) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);

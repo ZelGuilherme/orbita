@@ -40,6 +40,7 @@ import {
   saveUiPrefs,
   saveVolumes,
   SYNCED_KEYS,
+  validAvatar,
   type Profile,
   type Settings,
 } from './lib/storage';
@@ -128,6 +129,14 @@ function makeHandlers(meId: string): SessionHandlers {
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
     fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
+    avatars: (avatars) => setApp({ avatars: Object.fromEntries(Object.entries(avatars).filter(([, url]) => validAvatar(url))) }),
+    avatar: (memberId, avatar) =>
+      setApp((s) => {
+        const avatars = { ...s.avatars };
+        if (validAvatar(avatar)) avatars[memberId] = avatar;
+        else delete avatars[memberId];
+        return { avatars };
+      }),
     status: (status, detail) => {
       if (status === 'reconnecting') setApp({ net: 'reconnecting', netDetail: detail ?? 'loss' });
       else if (status === 'connected') setApp({ net: 'connected', netDetail: '' });
@@ -357,7 +366,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     landingError: null,
     connectingText: mode === 'create' ? 'Criando sua órbita…' : `Entrando na órbita ${arg}…`,
   });
-  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color };
+  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar };
   const handlers = makeHandlers(identity.id);
   try {
     const created =
@@ -487,7 +496,7 @@ export async function joinCall() {
   const s = getApp();
   const channelId = voiceChannelId();
   if (!media || !session || s.joiningVoice || s.inCall || !channelId) return;
-  setApp({ joiningVoice: true });
+  setApp(s.settings.joinMuted ? { joiningVoice: true, micOn: false } : { joiningVoice: true });
   const engine = media;
   const micAvailable = await engine.joinVoice(channelId, effectiveMic());
   if (!session || media !== engine) return;
@@ -811,12 +820,19 @@ export const renameRoom = (name: string) => admin({ kind: 'rename', name });
 // ───────────────────────── perfil e preferências ─────────────────────────
 
 function applyProfile(profile: Profile) {
-  setApp({ profile });
-  session?.setIdentity({ name: profile.name, color: profile.color });
+  setApp((s) => {
+    // a minha foto aparece na hora, sem esperar o hub
+    const avatars = { ...s.avatars };
+    if (s.meId && profile.avatar) avatars[s.meId] = profile.avatar;
+    else if (s.meId) delete avatars[s.meId];
+    return { profile, avatars };
+  });
+  session?.setIdentity({ name: profile.name, color: profile.color, avatar: profile.avatar });
 }
 
 export function updateProfile(patch: Partial<Omit<Profile, 'id'>>) {
   const profile = { ...getApp().profile, ...patch };
+  if (!profile.avatar) delete profile.avatar;
   saveProfile(profile);
   applyProfile(profile);
 }
@@ -1033,7 +1049,7 @@ function syncFromOtherWindow(e: StorageEvent) {
   if (e.key === SYNCED_KEYS.profile) {
     const profile = loadProfile();
     const current = getApp().profile;
-    if (profile.name !== current.name || profile.color !== current.color) applyProfile(profile);
+    if (profile.name !== current.name || profile.color !== current.color || profile.avatar !== current.avatar) applyProfile(profile);
   } else if (e.key === SYNCED_KEYS.settings) {
     applySettings(loadSettings());
   }

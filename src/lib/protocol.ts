@@ -123,7 +123,7 @@ export type ClientMsg =
   | {
       t: 'hello';
       v: number;
-      member: { id: string; peerId: string; name: string; color: string };
+      member: { id: string; peerId: string; name: string; color: string; avatar?: string };
       presence: Presence;
       /** Reentrada depois de queda/migração: mantém o lugar na fila. */
       rejoinAt?: number;
@@ -137,7 +137,7 @@ export type ClientMsg =
   | { t: 'typing'; channelId: string }
   | { t: 'speaking'; on: boolean }
   | { t: 'presence'; presence: Partial<Presence> }
-  | { t: 'profile'; name: string; color: string }
+  | { t: 'profile'; name: string; color: string; avatar?: string | null }
   | { t: 'live:watch'; streamerId: string; on: boolean }
   | { t: 'fx'; streamerId: string; fx: LiveFx }
   | { t: 'admin'; action: AdminAction };
@@ -155,6 +155,9 @@ export type HubMsg =
   | { t: 'live:viewer'; viewerId: string; viewerPeerId: string; on: boolean }
   | { t: 'fx'; from: string; streamerId: string; fx: LiveFx }
   | { t: 'fx:sync'; streamerId: string; strokes: FxStroke[] }
+  /** Fotos de perfil: todas ao entrar, depois uma por vez (fora do estado, que vai e volta toda hora). */
+  | { t: 'avatars'; avatars: Record<string, string> }
+  | { t: 'avatar'; memberId: string; avatar: string | null }
   | { t: 'ping' }
   | { t: 'kicked'; ban: boolean }
   | { t: 'ended' }

@@ -22,6 +22,7 @@ import { setApp, useApp, voiceChannelOf } from '../store';
 import { openMemberCard } from './MemberCard';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
+import { SignalBars } from './SoundPanel';
 import { cx, IconButton } from './ui';
 
 /** Painel da esquerda: a sala, quem está na chamada, quem está só na órbita e você. */
@@ -177,6 +178,7 @@ function PersonRow({ member, host, me, speaking }: { member: Member; host: boole
         </span>
       </span>
       <span className="person__icons">
+        {member.voiceChannelId && !me && <SignalBars memberId={member.id} />}
         {member.cameraOn && <Video size={14} />}
         {member.voiceChannelId && muted && <MicOff size={14} className={member.serverMuted ? 'danger' : undefined} />}
         {member.deafened && <HeadphoneOff size={14} />}

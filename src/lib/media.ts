@@ -65,6 +65,15 @@ export interface MediaEvents {
   liveStalled(streamerId: string): void;
   cameraEnded(): void;
   micLost(): void;
+  /** Qualidade da conexão de voz com cada pessoa (a cada 2 s). */
+  quality(links: Record<string, LinkQuality>): void;
+}
+
+export interface LinkQuality {
+  /** Tempo de ida e volta em ms (null = ainda sem medida). */
+  rtt: number | null;
+  /** Pacotes de áudio perdidos nos últimos segundos, em %. */
+  loss: number;
 }
 
 /** Nível 0..1 (escala em dB) de um trecho de áudio. */
@@ -142,7 +151,7 @@ export class MediaEngine {
   private liveIn = new Map<string, MediaConnection>();
   private liveStreams = new Map<string, MediaStream>();
   /** Vigia das conexões (voz e lives que eu assisto): pacotes de áudio recebidos e há quanto tempo nada chega. */
-  private health = new WeakMap<MediaConnection, { packets: number; stillMs: number }>();
+  private health = new WeakMap<MediaConnection, { packets: number; lost: number; stillMs: number; loss: number }>();
   private watchdog = 0;
   /** Som da live: a captura passa por aqui junto com um silêncio constante (o sinal de vida). */
   private liveMix: { dest: MediaStreamAudioDestinationNode; source: MediaStreamAudioSourceNode | null } | null = null;
@@ -739,6 +748,7 @@ export class MediaEngine {
       window.clearInterval(this.watchdog);
       this.watchdog = 0;
       this.health = new WeakMap();
+      if (!this.destroyed) this.ev.quality({});
       return;
     }
     for (const [streamerId, call] of [...this.liveIn]) {
@@ -751,38 +761,64 @@ export class MediaEngine {
         this.ev.liveStalled(streamerId);
       }
     }
+    const quality: Record<string, LinkQuality> = {};
     for (const link of [...this.voice.values()]) {
       if (!link.stream) continue;
-      if (await this.stalled(link.call)) {
-        if (this.voice.get(link.peerId) !== link) continue;
+      const probe = await this.probe(link.call);
+      if (this.voice.get(link.peerId) !== link) continue;
+      if (probe.stalled) {
         console.warn('[voz] travou, reconectando', link.memberId);
         this.dropVoice(link, true);
+        continue;
       }
+      quality[link.memberId] = { rtt: probe.rtt, loss: probe.loss };
     }
+    this.ev.quality(quality);
   }
 
-  /** Nada chegou nesta conexão nos últimos segundos? */
   private async stalled(call: MediaConnection): Promise<boolean> {
+    return (await this.probe(call)).stalled;
+  }
+
+  /** Nada chegou nesta conexão nos últimos segundos? E como está o ping e a perda de pacotes. */
+  private async probe(call: MediaConnection): Promise<{ stalled: boolean; rtt: number | null; loss: number }> {
     const pc = call.peerConnection;
-    if (!pc) return false;
-    if (pc.connectionState === 'failed') return true;
+    if (!pc) return { stalled: false, rtt: null, loss: 0 };
+    if (pc.connectionState === 'failed') return { stalled: true, rtt: null, loss: 100 };
     let packets = 0;
+    let lost = 0;
+    let rtt: number | null = null;
+    let remoteRtt: number | null = null;
     try {
       const stats = await pc.getStats();
       stats.forEach((r) => {
-        if (r.type === 'inbound-rtp' && r.kind === 'audio') packets += Number(r.packetsReceived) || 0;
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+          packets += Number(r.packetsReceived) || 0;
+          lost += Math.max(0, Number(r.packetsLost) || 0);
+        } else if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && typeof r.currentRoundTripTime === 'number') {
+          rtt = Math.round(r.currentRoundTripTime * 1000);
+        } else if (r.type === 'remote-inbound-rtp' && r.kind === 'audio' && typeof r.roundTripTime === 'number') {
+          remoteRtt = Math.round(r.roundTripTime * 1000);
+        }
       });
     } catch {
-      return false;
+      return { stalled: false, rtt: null, loss: 0 };
     }
+    rtt ??= remoteRtt;
     const health = this.health.get(call);
     if (!health) {
-      this.health.set(call, { packets, stillMs: 0 });
-      return false;
+      this.health.set(call, { packets, lost, stillMs: 0, loss: 0 });
+      return { stalled: false, rtt, loss: 0 };
     }
+    const got = packets - health.packets;
+    const missed = lost - health.lost;
+    // média suave: um pico isolado não pinta a barra de vermelho
+    const now = got + missed > 0 ? (missed / (got + missed)) * 100 : health.loss;
+    health.loss = health.loss * 0.5 + Math.max(0, now) * 0.5;
     health.stillMs = packets > health.packets ? 0 : health.stillMs + STALL_CHECK_MS;
     health.packets = packets;
-    return health.stillMs >= STALL_MS;
+    health.lost = lost;
+    return { stalled: health.stillMs >= STALL_MS, rtt, loss: Math.round(health.loss * 10) / 10 };
   }
 
   /** Descarta a conexão de uma live que eu assisto, sem deixar de assistir (para pedir de novo). */

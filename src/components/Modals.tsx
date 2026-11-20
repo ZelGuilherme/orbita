@@ -64,6 +64,7 @@ import { canFloat, openFloating } from './Floating';
 import { AvatarButtons, ColorInput, Swatches } from './Landing';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
+import { VoiceEffectPicker } from './SoundPanel';
 import { cx, IconButton, Modal, Switch } from './ui';
 
 export function Modals() {
@@ -502,6 +503,19 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
 
       <VoiceFilters testMeter={settings.voiceMode !== 'vad'} />
 
+      <h4 className="settings__subtitle">Efeitos e soundboard</h4>
+      <div className="field">
+        <span>Efeito na sua voz</span>
+        <VoiceEffectPicker />
+        <span className="hint">Só muda o que sai para a chamada. Para ouvir como fica, use “Testar microfone” e marque “Ouvir” (com fones).</span>
+      </div>
+      <Switch
+        label="Ouvir os sons do soundboard dos outros"
+        hint="Os sons (buzina, palmas, sino…) ficam no botão ✨ da barra da chamada."
+        checked={settings.soundboardOthers}
+        onChange={(soundboardOthers) => updateSettings({ soundboardOthers })}
+      />
+
       <h4 className="settings__subtitle">Câmera e outros</h4>
       <div className="grid-2">
         <DeviceSelect
@@ -671,10 +685,10 @@ function MicMeter({ threshold, monitor }: { threshold?: boolean; monitor?: boole
     };
   }, [on, audioInputId, echoCancellation, autoGainControl, browserNs]);
 
-  const { noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto } = settings;
+  const { noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto, voiceEffect } = settings;
   useEffect(() => {
     void proc.current?.update(voiceOptions(getApp().settings));
-  }, [noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto]);
+  }, [noiseFilter, highpass, compressor, noiseGate, inputGain, vadThreshold, vadAuto, voiceEffect]);
   // no automático, o marcador acompanha o limiar calculado (sem teste ligado, fica no valor de partida)
   const shownThreshold = vadAuto ? (liveThreshold ?? 0.22) : vadThreshold;
 

@@ -4,6 +4,7 @@ import { DEFAULT_KEYBINDS, sanitizeKeybinds, type Keybinds } from './keybinds';
 import { sanitizePlanet, type PlanetStyle } from './planet';
 import type { LiveQuality, PenStyle } from './protocol';
 import { randomId } from './util';
+import { validEffect, type VoiceEffect } from './voicefx';
 
 export interface Profile {
   id: string;
@@ -56,6 +57,12 @@ export interface Settings {
   /** Sensibilidade automática: o limiar acompanha o ruído de fundo (o vadThreshold fica guardado para o modo manual). */
   vadAuto: boolean;
   voiceMode: VoiceMode;
+  /** Efeito na minha voz (só no que sai para a chamada). */
+  voiceEffect: VoiceEffect;
+  /** Ouvir os sons do soundboard das outras pessoas. */
+  soundboardOthers: boolean;
+  /** Guardar o último minuto para salvar um clipe a qualquer momento (pesa um pouco no computador). */
+  clips: boolean;
   /** Entrar na chamada com o microfone desligado. */
   joinMuted: boolean;
   cameraQuality: 'sd' | 'hd';
@@ -123,6 +130,9 @@ export const DEFAULT_SETTINGS: Settings = {
   vadThreshold: 0.32,
   vadAuto: true,
   voiceMode: 'vad',
+  voiceEffect: 'none',
+  soundboardOthers: true,
+  clips: false,
   joinMuted: true,
   cameraQuality: 'sd',
   liveQuality: '720p',
@@ -197,6 +207,9 @@ export function loadSettings(): Settings {
     ...saved,
     noiseFilter,
     voiceMode: saved.voiceMode === 'ptt' ? 'ptt' : 'vad',
+    voiceEffect: validEffect(saved.voiceEffect),
+    soundboardOthers: saved.soundboardOthers !== false,
+    clips: saved.clips === true,
     inputGain: clampNumber(saved.inputGain, 0, 200, 100),
     vadThreshold: clampNumber(saved.vadThreshold, 0.05, 0.9, DEFAULT_SETTINGS.vadThreshold),
     network: { ...DEFAULT_NETWORK, ...(saved.network ?? {}) },

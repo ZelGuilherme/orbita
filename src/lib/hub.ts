@@ -14,6 +14,8 @@ import {
   PROTOCOL_VERSION,
   REACTIONS,
   RECONNECT_GRACE_MS,
+  SOUND_COOLDOWN_MS,
+  SOUND_IDS,
 } from './config';
 import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
@@ -115,6 +117,8 @@ export class Hub {
   /** Desenhos do lápis em cada live, para quem começar a assistir depois. */
   private drawings = new Map<string, FxStroke[]>();
   private avatars = new Map<string, string>();
+  /** Último som do soundboard de cada um (limite de um a cada 2 s). */
+  private soundAt = new Map<string, number>();
   private statePending = false;
   private stopped = false;
 
@@ -250,6 +254,7 @@ export class Hub {
     this.graceTimers.delete(id);
     this.state.members = this.state.members.filter((m) => m.id !== id);
     this.fxLimits.delete(id);
+    this.soundAt.delete(id);
     this.drawings.delete(id);
     this.avatars.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
@@ -305,6 +310,17 @@ export class Hub {
       case 'speaking':
         this.broadcast({ t: 'speaking', memberId: me.id, on: !!msg.on }, me.id);
         return;
+      case 'sound': {
+        const now = Date.now();
+        if (!me.voiceChannelId || !(SOUND_IDS as readonly string[]).includes(msg.id)) return;
+        // folga de 150 ms para a latência da rede
+        if (now - (this.soundAt.get(me.id) ?? 0) < SOUND_COOLDOWN_MS - 150) return;
+        this.soundAt.set(me.id, now);
+        for (const m of this.state.members) {
+          if (m.voiceChannelId === me.voiceChannelId) this.byMember.get(m.id)?.wire.send({ t: 'sound', from: me.id, id: msg.id } satisfies HubMsg);
+        }
+        return;
+      }
       case 'presence':
         this.applyPresence(me, msg.presence);
         if (!me.live) this.drawings.delete(me.id);

@@ -56,6 +56,7 @@ import { canFloat, openFloating } from './Floating';
 import { FxBar, FxLayer } from './LiveFx';
 import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
+import { SoundButton } from './SoundPanel';
 import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
 const EMPTY: Member[] = [];
@@ -650,6 +651,7 @@ function CallControls() {
           <ScreenShare />
         </button>
       )}
+      <SoundButton />
       <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
         <PhoneOff />
       </button>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LiveSurface } from './lib/media';
+import type { LinkQuality, LiveSurface } from './lib/media';
 import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
 import { loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
@@ -61,6 +61,10 @@ export interface AppState {
   /** Quem está digitando: id → até quando. */
   typing: Record<string, number>;
   speaking: Record<string, boolean>;
+  /** Ping e perda de pacotes da voz de cada pessoa. */
+  quality: Record<string, LinkQuality>;
+  /** Até quando o meu soundboard está esperando (um som a cada 2 s). */
+  soundCooldown: number;
   /** Fotos de perfil de quem está na sala. */
   avatars: Record<string, string>;
   /** Mensagem que estou respondendo (id). */
@@ -124,6 +128,8 @@ const roomDefaults = () => ({
   messages: [],
   typing: {},
   speaking: {},
+  quality: {},
+  soundCooldown: 0,
   avatars: {},
   replyTo: null,
   transfers: {},

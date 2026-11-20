@@ -5,6 +5,7 @@ import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
 import rnnoiseSimdUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
 import type { NoiseFilter, Settings } from './storage';
+import { createEffect, type EffectChain, type VoiceEffect } from './voicefx';
 
 /**
  * Filtros do microfone, todos no navegador (Web Audio):
@@ -26,6 +27,8 @@ export interface VoiceOptions {
   threshold: number;
   /** O limiar acompanha sozinho o ruído de fundo. */
   autoThreshold: boolean;
+  /** Efeito de voz (robô, grossa, fina, caverna, rádio). */
+  effect: VoiceEffect;
 }
 
 export const voiceOptions = (s: Settings): VoiceOptions => ({
@@ -36,6 +39,7 @@ export const voiceOptions = (s: Settings): VoiceOptions => ({
   inputGain: s.inputGain,
   threshold: s.vadThreshold,
   autoThreshold: s.vadAuto,
+  effect: s.voiceEffect,
 });
 
 /** Com supressão por IA, a do navegador fica desligada (as duas juntas deixam a voz robótica). */
@@ -93,6 +97,8 @@ export class VoiceProcessor {
   private dest: MediaStreamAudioDestinationNode;
   private suppressor: Suppressor | null = null;
   private suppressorKind: AiFilter | null = null;
+  private effect: EffectChain | null = null;
+  private effectKind: VoiceEffect = 'none';
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
 
@@ -137,7 +143,6 @@ export class VoiceProcessor {
     };
     this.dest = ctx.createMediaStreamDestination();
     this.dest.channelCount = 1;
-    this.gate.connect(this.dest);
     this.track = this.dest.stream.getAudioTracks()[0];
   }
 
@@ -147,6 +152,7 @@ export class VoiceProcessor {
       await addModule(ctx, gateWorkletUrl);
       const processor = new VoiceProcessor(ctx, input, opts);
       await processor.applySuppressor();
+      await processor.applyEffect();
       processor.wire();
       processor.resume();
       return processor;
@@ -164,6 +170,7 @@ export class VoiceProcessor {
       this.gain.gain.setTargetAtTime(opts.inputGain / 100, this.ctx.currentTime, 0.03);
       this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate, auto: opts.autoThreshold });
       await this.applySuppressor();
+      await this.applyEffect();
       this.wire();
     });
     return this.queue;
@@ -183,6 +190,7 @@ export class VoiceProcessor {
     this.stopped = true;
     this.gate.port.onmessage = null;
     this.suppressor?.destroy?.();
+    this.effect?.dispose();
     this.track.stop();
     void this.ctx.close().catch(() => {});
     if (this.speaking) this.onSpeaking(false);
@@ -218,9 +226,28 @@ export class VoiceProcessor {
     }
   }
 
+  private async applyEffect() {
+    const want = this.opts.effect ?? 'none';
+    if (want === this.effectKind) return;
+    let next: EffectChain | null = null;
+    try {
+      next = await createEffect(this.ctx, want);
+    } catch (err) {
+      console.warn('[voz] efeito indisponível', err);
+    }
+    if (this.stopped) {
+      next?.dispose();
+      return;
+    }
+    const old = this.effect;
+    this.effect = next;
+    this.effectKind = next ? want : 'none';
+    old?.dispose();
+  }
+
   /** (Re)liga os nós na ordem certa, pulando os filtros desligados. */
   private wire() {
-    for (const node of [this.source, this.gain, this.highpass, this.suppressor, this.compressor]) {
+    for (const node of [this.source, this.gain, this.highpass, this.suppressor, this.compressor, this.gate, this.effect?.output]) {
       try {
         node?.disconnect();
       } catch {
@@ -236,6 +263,13 @@ export class VoiceProcessor {
     for (const node of chain) {
       tail.connect(node);
       tail = node;
+    }
+    // efeito depois do portão: o detector de voz continua ouvindo a voz limpa
+    if (this.effect) {
+      this.gate.connect(this.effect.input);
+      this.effect.output.connect(this.dest);
+    } else {
+      this.gate.connect(this.dest);
     }
   }
 }

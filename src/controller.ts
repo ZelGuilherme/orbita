@@ -1,4 +1,4 @@
-import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
+import { APP_NAME, MAX_MESSAGES_PER_CHANNEL, SOUND_COOLDOWN_MS, type SoundId } from './lib/config';
 import { FileShare, saveBlob, type TransferEvents } from './lib/files';
 import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
@@ -31,6 +31,7 @@ import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
 import type { AdminAction, Attachment, ChatMessage, FileAttachment, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
+import { playSoundboard, SOUNDS, validSound } from './lib/soundboard';
 import { setSoundsEnabled, sfx } from './lib/sounds';
 import { watchForUpdates } from './lib/update';
 import {
@@ -131,6 +132,7 @@ function makeHandlers(meId: string): SessionHandlers {
     },
     speaking: (memberId, on) =>
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
+    sound: onSound,
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
     fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
@@ -238,6 +240,19 @@ function onChat(message: ChatMessage) {
   syncTitle();
 }
 
+/** Alguém da chamada tocou um som do soundboard (cada um toca o seu). */
+function onSound(from: string, id: string) {
+  const s = getApp();
+  if (!s.inCall || s.deafened || !validSound(id)) return;
+  const mine = from === s.meId;
+  if (!mine && !s.settings.soundboardOthers) return;
+  playSoundboard(id);
+  if (!mine) {
+    const name = s.room?.members.find((m) => m.id === from)?.name ?? 'Alguém';
+    toast(`${SOUNDS[id].emoji} ${name}: ${SOUNDS[id].label}`, 'info', 2_000);
+  }
+}
+
 function onEnded(reason: EndReason) {
   const s = getApp();
   const roomName = s.room?.name ?? '';
@@ -311,6 +326,7 @@ function mediaEvents(): MediaEvents {
       sendPresence({ cameraOn: false });
     },
     micLost: () => toast('O microfone foi desconectado.', 'error'),
+    quality: (links) => setApp({ quality: links }),
   };
 }
 
@@ -660,6 +676,15 @@ export async function toggleCamera() {
   }
 }
 
+/** Soundboard: toca um som para todo mundo da chamada (um a cada 2 s). */
+export function playSound(id: SoundId) {
+  const s = getApp();
+  if (!s.inCall || !session) return;
+  if (Date.now() < s.soundCooldown) return;
+  setApp({ soundCooldown: Date.now() + SOUND_COOLDOWN_MS });
+  session.send({ t: 'sound', id });
+}
+
 // ───────────────────────── lives ─────────────────────────
 
 /** Dica para quando a pessoa pediu som, mas o navegador entregou a captura sem áudio. */
@@ -999,7 +1024,7 @@ function applySettings(settings: Settings) {
     void media.refreshMic();
   } else if (
     media &&
-    (changed('noiseFilter') || changed('highpass') || changed('compressor') || changed('noiseGate') || changed('inputGain') || changed('vadThreshold') || changed('vadAuto'))
+    (changed('noiseFilter') || changed('highpass') || changed('compressor') || changed('noiseGate') || changed('inputGain') || changed('vadThreshold') || changed('vadAuto') || changed('voiceEffect'))
   ) {
     void media.updateVoice().then(() => {
       if (changed('noiseFilter') && media?.voiceFilterFailed) toast('Não consegui carregar essa supressão de ruído.', 'error');

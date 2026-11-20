@@ -222,6 +222,38 @@ async function chamadaCompleta(opened) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);
   }
   log('  malha de voz completa');
+
+  // barras de qualidade da conexão, com ping e perda no título
+  await waitFor(a.page, () => document.querySelectorAll('.people .signal').length >= 2, null, 15_000);
+  log('  qualidade da conexão:', await a.page.locator('.people .signal').first().getAttribute('title'));
+
+  // soundboard: a Ana toca a buzina; o Bruno vê quem tocou; a Carla desligou os sons dos outros
+  await c.page.evaluate(() => {
+    const s = window.__orbita.getApp().settings;
+    localStorage.setItem('orbita.settings.v1', JSON.stringify({ ...s, soundboardOthers: false }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'orbita.settings.v1', storageArea: localStorage }));
+  });
+  await waitFor(c.page, () => window.__orbita.getApp().settings.soundboardOthers === false);
+  await a.page.getByRole('button', { name: 'Sons e efeitos' }).click();
+  await a.page.locator('.sound-btn', { hasText: 'Buzina' }).click();
+  if (!(await a.page.locator('.sound-btn', { hasText: 'Sino' }).isDisabled())) throw new Error('o soundboard não esperou 2 s entre um som e outro');
+  // o host também barra quem manda sons rápido demais (direto pela rede, sem o botão)
+  await a.page.evaluate(() => window.__orbita.session().send({ t: 'sound', id: 'bell' }));
+  await waitFor(b.page, () => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Ana: Buzina')), null, 10_000);
+  await new Promise((r) => setTimeout(r, 800));
+  if (await c.page.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('Buzina')))) throw new Error('a Carla ouviu o som mesmo desligando');
+  if ((await b.page.evaluate(() => [...document.querySelectorAll('.toast')].filter((t) => t.textContent.includes('Sino')).length)) > 0) throw new Error('o host deixou passar dois sons em menos de 2 s');
+  log('  soundboard ok: todos ouvem, limite de 2 s (também no host) e opção de não ouvir os outros');
+
+  // efeitos de voz: robô e voz grossa carregam sem derrubar a voz
+  for (const effect of ['robot', 'deep', 'radio', 'none']) {
+    await a.page.locator('.sound-panel .chip', { hasText: { robot: 'Robô', deep: 'Voz grossa', radio: 'Rádio', none: 'Normal' }[effect] }).click();
+    await waitFor(a.page, (e) => window.__orbitaMedia?.voiceProc?.effectKind === e, effect, 10_000);
+  }
+  await a.page.keyboard.press('Escape');
+  await a.page.mouse.click(5, 5);
+  await waitFor(b.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 10_000);
+  log('  efeitos de voz ok (robô, voz grossa, rádio e normal)');
   const threshold = await a.page.evaluate(() => window.__orbitaMedia.voiceProc?.threshold);
   if (!(threshold >= 0.22 && threshold <= 0.7)) throw new Error(`sensibilidade automática fora da faixa: ${threshold}`);
   log('  sensibilidade automática ativa, limiar', threshold.toFixed(2));

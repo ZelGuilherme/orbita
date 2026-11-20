@@ -590,3 +590,129 @@
 .orbit__center-btn .planet.has-video {
   cursor: zoom-in;
 }
+
+/* ───────── sons e efeitos ───────── */
+
+.ctrl-wrap {
+  position: relative;
+}
+
+.sound-panel {
+  position: absolute;
+  z-index: 41;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(560px, 70vh);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+
+.sound-panel h4 {
+  margin: 0 0 10px;
+  font: 700 13px/1 var(--font-display);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sound-panel h4:not(:first-child) {
+  margin-top: 16px;
+}
+
+.sound-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.sound-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 66px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.15;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.sound-btn:hover:not(:disabled) {
+  background: var(--bg-4);
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
+.sound-btn:disabled {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+.sound-btn__emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.sound-panel__hint {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.fx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* barras de qualidade da conexão */
+.signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 12px;
+  padding: 0 2px;
+}
+
+.signal i {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--bg-5);
+}
+
+.signal i:nth-child(1) {
+  height: 4px;
+}
+.signal i:nth-child(2) {
+  height: 6.5px;
+}
+.signal i:nth-child(3) {
+  height: 9px;
+}
+.signal i:nth-child(4) {
+  height: 12px;
+}
+
+.signal--4 i.is-lit,
+.signal--3 i.is-lit {
+  background: var(--ok);
+}
+
+.signal--2 i.is-lit {
+  background: var(--warn);
+}
+
+.signal--1 i.is-lit {
+  background: var(--danger);
+}

@@ -790,3 +790,173 @@
     transform: none;
   }
 }
+
+/* ───────── órbita em 3D ───────── */
+
+.orbit3d {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.orbit3d__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+
+.orbit3d__still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+
+.orbit3d__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.orbit3d__label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+  will-change: transform;
+  transition: opacity 0.2s;
+}
+
+.orbit3d__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 150px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(5, 6, 15, 0.72);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.orbit3d__label.is-host .orbit3d__name {
+  font-size: 14px;
+  color: #fde68a;
+}
+
+.orbit3d__label.is-away {
+  filter: grayscale(0.8);
+  opacity: 0.55 !important;
+}
+
+.orbit3d__label:hover .orbit3d__name,
+.orbit3d__label:focus-visible .orbit3d__name {
+  border-color: var(--line-2);
+  background: rgba(21, 25, 56, 0.92);
+}
+
+.orbit3d__name svg {
+  flex: none;
+  color: var(--danger);
+}
+
+.orbit3d__sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.orbit3d__label.is-room {
+  pointer-events: none;
+}
+
+.orbit3d__tools {
+  position: absolute;
+  z-index: 5;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+}
+
+.orbit3d__tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(5, 6, 15, 0.7);
+  border: 1px solid var(--line-2);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.orbit3d__tool:hover {
+  color: var(--text);
+  background: rgba(21, 25, 56, 0.9);
+}
+
+.orbit3d__tool.is-on {
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+.orbit3d__hint {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.orbit3d--compact .orbit3d__tools {
+  top: 6px;
+  left: 6px;
+}
+
+.orbit3d--compact .orbit3d__tool {
+  height: 24px;
+  padding: 0 8px;
+}
+
+.orbit3d__tool {
+  white-space: nowrap;
+  flex: none;
+}
+
+@media (max-width: 560px) {
+  .orbit3d__tools {
+    flex-wrap: wrap;
+  }
+
+  .orbit3d__hint {
+    white-space: normal;
+    border-radius: 10px;
+  }
+}

@@ -1,6 +1,8 @@
-import type { CSSProperties, ReactNode } from 'react';
-import type { Ornament, PlanetStyle } from '../lib/planet';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { DEFAULT_PLANET, type Ornament, type PlanetStyle } from '../lib/planet';
+import { textureSeed } from '../lib/noise';
 import { initials, planetBackground } from '../lib/util';
+import { hasWebGL, THUMB_FRAME } from '../lib/webgl';
 import { useApp } from '../store';
 import { cx, VideoEl } from './ui';
 
@@ -64,14 +66,71 @@ const ORNAMENT_SHAPES: Record<Ornament, ReactNode> = {
   ),
 };
 
+/** Imagens já prontas dos planetas 3D (para não piscar o 2D quando o componente remonta). */
+const thumbs = new Map<string, string>();
+const THUMB_SIZES = [128, 256, 384, 512];
+
+/** Imagem do planeta em 3D (gerada uma vez por aparência); null enquanto não fica pronta. */
+function usePlanetThumb(spec: { color: string; look: PlanetStyle; seed: number; photo?: string; px: number } | null): string | null {
+  const key = spec ? JSON.stringify([spec.color, spec.look, spec.seed, spec.photo?.length ?? 0, spec.photo?.slice(-40) ?? '', spec.px]) : '';
+  const [url, setUrl] = useState<string | null>(() => (key ? (thumbs.get(key) ?? null) : null));
+  useEffect(() => {
+    if (!spec) {
+      setUrl(null);
+      return;
+    }
+    const hit = thumbs.get(key);
+    if (hit) {
+      setUrl(hit);
+      return;
+    }
+    let alive = true;
+    import('../three/thumbnails')
+      .then((m) => m.requestThumb(spec))
+      .then((u) => {
+        thumbs.set(key, u);
+        if (thumbs.size > 150) thumbs.delete(thumbs.keys().next().value!);
+        if (alive) setUrl(u);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // a chave resume o spec
+  }, [key]);
+  return spec ? url : null;
+}
+
 /** Avatar em forma de planeta: cores, textura, anéis, luas, brilho, enfeites e (se houver) foto ou câmera. */
 export function Planet({ name, color, size = 40, host, speaking, live, text, className, memberId, avatar, planet, video, mirror }: PlanetProps) {
   const storedPhoto = useApp((s) => (memberId ? s.avatars[memberId] : undefined));
   const storedPlanet = useApp((s) => (memberId ? s.room?.members.find((m) => m.id === memberId)?.planet : undefined));
+  const seedId = useApp((s) => memberId ?? s.profile.id);
   const photo = avatar ?? storedPhoto;
   const look = planet ?? storedPlanet;
   const rings = look?.rings ?? 0;
   const hasVideo = !!video && video.getVideoTracks().length > 0;
+  // em 3D: uma imagem do planeta (sem texto no lugar da inicial e sem câmera ao vivo)
+  const need = Math.ceil(size * THUMB_FRAME * Math.min(2, window.devicePixelRatio || 1));
+  const thumb = usePlanetThumb(
+    !text && !hasVideo && hasWebGL() ? { color, look: look ?? DEFAULT_PLANET, seed: textureSeed(seedId), photo, px: THUMB_SIZES.find((s) => s >= need) ?? 512 } : null,
+  );
+  if (thumb) {
+    return (
+      <span
+        className={cx('planet', 'planet--3d', host && 'planet--host', speaking && 'is-speaking', live && 'is-live', className)}
+        style={{ '--size': `${size}px` } as CSSProperties}
+        aria-hidden="true"
+      >
+        <img className="planet__img" src={thumb} alt="" draggable={false} style={{ width: size * THUMB_FRAME, height: size * THUMB_FRAME }} />
+        {host && (
+          <svg className="planet__crown" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 8l4.5 4L12 4l4.5 8L21 8l-2 11H5z" />
+          </svg>
+        )}
+      </span>
+    );
+  }
   const style = {
     '--size': `${size}px`,
     '--ring': look?.ringColor,

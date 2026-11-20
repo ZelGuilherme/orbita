@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -51,6 +51,7 @@ import { comboLabel } from '../lib/keybinds';
 import { MAX_VOLUME } from '../lib/playback';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor, roomInitials } from '../lib/util';
+import { hasWebGL } from '../lib/webgl';
 import { setApp, useApp, voiceChannelOf } from '../store';
 import { canFloat, openFloating } from './Floating';
 import { FxBar, FxLayer } from './LiveFx';
@@ -61,6 +62,19 @@ import { SoundButton } from './SoundPanel';
 import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
 const EMPTY: Member[] = [];
+
+/** A órbita em 3D só é baixada (three.js) quando aparece. */
+const Orbit3D = lazy(() => import('./Orbit3D'));
+
+/** A órbita do centro: 3D quando o navegador desenha em 3D; senão, a versão 2D. */
+function OrbitView(props: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void; compact?: boolean }) {
+  if (!hasWebGL()) return <OrbitStage {...props} />;
+  return (
+    <Suspense fallback={<OrbitStage {...props} />}>
+      <Orbit3D {...props} />
+    </Suspense>
+  );
+}
 
 /** O que fica grande no centro: a escolhida (live ou câmera) ou, sem escolha, a live no ar. */
 function featuredOf(members: Member[], focus: string | null, meId: string | null): TileSpec | null {
@@ -112,7 +126,7 @@ export function CallView() {
               </button>
             ) : (
               <div className="orbit-strip">
-                <OrbitStage members={members} room={room} onPick={pick} compact />
+                <OrbitView members={members} room={room} onPick={pick} compact />
                 <IconButton label="Esconder os planetas" className="orbit-strip__hide" tipPos="left" onClick={() => setOrbitHidden(true)}>
                   <ChevronDown size={16} />
                 </IconButton>
@@ -120,7 +134,7 @@ export function CallView() {
             )}
           </div>
         ) : (
-          <OrbitStage members={members} room={room} onPick={pick} />
+          <OrbitView members={members} room={room} onPick={pick} />
         )}
       </div>
       {inCall ? (

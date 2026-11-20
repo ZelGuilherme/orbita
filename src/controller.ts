@@ -27,6 +27,7 @@ import {
   type KeyAction,
 } from './lib/keybinds';
 import { mentionsName } from './lib/markdown';
+import type { OrbitStyle } from './lib/orbitPath';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
@@ -406,7 +407,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     landingError: null,
     connectingText: mode === 'create' ? 'Criando sua órbita…' : `Entrando na órbita ${arg}…`,
   });
-  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet };
+  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet, orbit: profile.orbit };
   const handlers = makeHandlers(identity.id);
   try {
     const created =
@@ -494,9 +495,24 @@ export async function shareInvite() {
 
 // ───────────────────────── chat ─────────────────────────
 
+/** Grava as preferências da interface (chat, faixa de planetas, 3D). */
+function persistUi() {
+  const s = getApp();
+  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, planets3d: s.planets3d });
+}
+
+/** Liga ou desliga os planetas em 3D (desligado = imagem parada da cena). */
+export function setPlanets3d(planets3d: boolean) {
+  setApp({ planets3d });
+  persistUi();
+}
+
+/** Arrastei o meu planeta: a órbita nova fica no perfil e vai para todo mundo. */
+export const setMyOrbit = (orbit: OrbitStyle) => updateProfile({ orbit });
+
 export function setChatOpen(chatOpen: boolean) {
   setApp((s) => ({ chatOpen, unread: chatOpen ? 0 : s.unread, mentions: chatOpen ? 0 : s.mentions }));
-  saveUiPrefs({ chatOpen, chatWidth: getApp().chatWidth, orbitHidden: getApp().orbitHidden });
+  persistUi();
   syncTitle();
 }
 
@@ -509,13 +525,13 @@ export function applyUpdate() {
 
 export function setChatWidth(chatWidth: number | null, save = true) {
   setApp({ chatWidth });
-  if (save) saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth, orbitHidden: getApp().orbitHidden });
+  if (save) persistUi();
 }
 
 /** Esconde ou mostra a faixa de planetas embaixo da live (fica salvo). */
 export function setOrbitHidden(orbitHidden: boolean) {
   setApp({ orbitHidden });
-  saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth: getApp().chatWidth, orbitHidden });
+  persistUi();
 }
 
 /** Abre a câmera de alguém grande no centro (null = volta para a órbita ou para a live). */
@@ -1291,7 +1307,7 @@ function applyProfile(profile: Profile) {
     else if (s.meId) delete avatars[s.meId];
     return { profile, avatars };
   });
-  session?.setIdentity({ name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet });
+  session?.setIdentity({ name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet, orbit: profile.orbit });
 }
 
 export function updateProfile(patch: Partial<Omit<Profile, 'id'>>) {
@@ -1550,7 +1566,7 @@ function syncFromOtherWindow(e: StorageEvent) {
   if (e.key === SYNCED_KEYS.profile) {
     const profile = loadProfile();
     const current = getApp().profile;
-    if (profile.name !== current.name || profile.color !== current.color || profile.avatar !== current.avatar || JSON.stringify(profile.planet) !== JSON.stringify(current.planet)) applyProfile(profile);
+    if (profile.name !== current.name || profile.color !== current.color || profile.avatar !== current.avatar || JSON.stringify(profile.planet) !== JSON.stringify(current.planet) || JSON.stringify(profile.orbit) !== JSON.stringify(current.orbit)) applyProfile(profile);
   } else if (e.key === SYNCED_KEYS.settings) {
     applySettings(loadSettings());
   }

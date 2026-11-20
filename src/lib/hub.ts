@@ -19,6 +19,7 @@ import {
 } from './config';
 import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
+import { sanitizeOrbit } from './orbitPath';
 import { sanitizePlanet } from './planet';
 import { validAvatar } from './storage';
 import type {
@@ -340,6 +341,7 @@ export class Hub {
         me.name = sanitizeName(msg.name);
         me.color = sanitizeColor(msg.color);
         if ('planet' in msg) me.planet = sanitizePlanet(msg.planet);
+        if ('orbit' in msg) me.orbit = sanitizeOrbit(msg.orbit);
         if ('avatar' in msg) this.setAvatar(me.id, msg.avatar);
         this.pushState();
         return;
@@ -410,6 +412,7 @@ export class Hub {
       name: sanitizeName(info.name),
       color: sanitizeColor(info.color),
       planet: sanitizePlanet(info.planet),
+      orbit: sanitizeOrbit(info.orbit),
       build: typeof info.build === 'string' && /^[a-z0-9-]{3,40}$/.test(info.build) ? info.build : undefined,
       joinedAt: prev?.joinedAt ?? this.nextJoinedAt(msg.rejoinAt),
       voiceChannelId: null,

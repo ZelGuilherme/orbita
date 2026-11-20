@@ -1,6 +1,7 @@
 import { COSMIC_NAMES, PLANET_COLORS } from './config';
 import { clampSize, ERASER_SIZE, PEN_SIZE, PEN_STYLES } from './fx';
 import { DEFAULT_KEYBINDS, sanitizeKeybinds, type Keybinds } from './keybinds';
+import { sanitizeOrbit, type OrbitStyle } from './orbitPath';
 import { sanitizePlanet, type PlanetStyle } from './planet';
 import type { LiveQuality, PenStyle } from './protocol';
 import { randomId } from './util';
@@ -14,6 +15,8 @@ export interface Profile {
   avatar?: string;
   /** Textura, anéis, luas e brilho do planeta. */
   planet?: PlanetStyle;
+  /** A minha órbita (arrastando o planeta). */
+  orbit?: OrbitStyle;
 }
 
 export interface NetworkSettings {
@@ -86,6 +89,8 @@ export interface UiPrefs {
   chatWidth: number | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
+  /** Planetas em 3D (desligado = uma imagem parada da cena). */
+  planets3d: boolean;
 }
 
 const PROFILE_KEY = 'orbita.profile.v1';
@@ -185,6 +190,8 @@ export function loadProfile(): Profile {
   if (validAvatar(saved?.avatar)) profile.avatar = saved!.avatar as string;
   const planet = sanitizePlanet(saved?.planet);
   if (planet) profile.planet = planet;
+  const orbit = sanitizeOrbit(saved?.orbit);
+  if (orbit) profile.orbit = orbit;
   // só grava quando precisou inventar algo (gravar à toa avisaria as outras janelas)
   if (!validId || !validName || !validColor) write(PROFILE_KEY, profile);
   return profile;
@@ -258,7 +265,7 @@ export function loadUiPrefs(): UiPrefs {
   // no celular o chat cobre a chamada: começa fechado
   const wide = typeof window === 'undefined' || window.innerWidth > 760;
   const width = Number(saved?.chatWidth);
-  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true };
+  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true, planets3d: saved?.planets3d !== false };
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);

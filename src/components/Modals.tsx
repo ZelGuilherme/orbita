@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, lazy, Suspense } from 'react';
 import {
   AppWindow,
   AudioLines,
@@ -60,6 +60,7 @@ import { DEFAULT_PLANET, ORNAMENTS, PLANET_TEXTURES, type Level, type Ornament, 
 import { DEFAULT_NETWORK, type NoiseFilter } from '../lib/storage';
 import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
 import { VoiceProcessor, voiceOptions } from '../lib/voice';
+import { hasWebGL } from '../lib/webgl';
 import { getApp, setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
 import { canFloat, openFloating } from './Floating';
 import { AvatarButtons, ColorInput, Swatches } from './Landing';
@@ -231,6 +232,8 @@ function ProfileTab() {
 }
 
 /** Textura, anéis, luas e brilho do planeta (a prévia lá em cima mostra na hora). */
+const PlanetPreview3D = lazy(() => import('./PlanetPreview3D'));
+
 function PlanetEditor() {
   const profile = useApp((s) => s.profile);
   const look = profile.planet ?? DEFAULT_PLANET;
@@ -249,6 +252,14 @@ function PlanetEditor() {
     set({ ornaments: look.ornaments.includes(id) ? look.ornaments.filter((o) => o !== id) : [...look.ornaments, id] });
   return (
     <div className="planet-editor">
+      {hasWebGL() && (
+        <div className="planet-editor__preview">
+          <Suspense fallback={<div style={{ width: 190, height: 190 }} />}>
+            <PlanetPreview3D color={profile.color} look={look} photo={profile.avatar} seedId={profile.id} />
+          </Suspense>
+          <span className="muted small">Assim seu planeta aparece na órbita. Arraste para virar.</span>
+        </div>
+      )}
       <div className="field">
         <span>Segunda cor</span>
         <div className="planet-editor__row">

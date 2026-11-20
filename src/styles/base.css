@@ -996,3 +996,27 @@ input[type='range'] {
 .link-btn--danger {
   color: #fda4af;
 }
+
+/* planeta 3D (imagem): o planeta no meio, anéis e luas em volta, para fora da caixa */
+.planet--3d .planet__img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.planet--3d.is-speaking::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: 2;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--ok),
+    0 0 14px 3px rgba(52, 211, 153, 0.5);
+  pointer-events: none;
+}

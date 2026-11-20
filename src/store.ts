@@ -102,6 +102,8 @@ export interface AppState {
   focus: string | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
+  /** Planetas em 3D (desligado = imagem parada). */
+  planets3d: boolean;
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
@@ -190,6 +192,7 @@ export const useApp = create<AppState>()(() => ({
   chatOpen: loadUiPrefs().chatOpen,
   chatWidth: loadUiPrefs().chatWidth,
   orbitHidden: loadUiPrefs().orbitHidden,
+  planets3d: loadUiPrefs().planets3d,
   pen: loadPen(),
   updateReady: false,
   lobbyRooms: [],

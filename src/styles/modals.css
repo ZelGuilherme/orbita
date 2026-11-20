@@ -867,3 +867,27 @@
   font-family: var(--mono);
   font-size: 12.5px;
 }
+
+.planet-editor__preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.planet-preview3d {
+  cursor: grab;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.16), transparent 70%);
+}
+
+.planet-preview3d:active {
+  cursor: grabbing;
+}
+
+.planet-preview3d__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

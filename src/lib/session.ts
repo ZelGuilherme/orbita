@@ -4,6 +4,7 @@ import { APP_BUILD } from './build';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
 import { Hub, createRoom, hubPeerId } from './hub';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
+import type { OrbitStyle } from './orbitPath';
 import type { PlanetStyle } from './planet';
 import type { ChatMessage, ClientMsg, FxStroke, HubMsg, LiveFx, Presence, RejectReason, RoomState } from './protocol';
 import { roomCode } from './util';
@@ -53,6 +54,7 @@ export interface Identity {
   color: string;
   avatar?: string;
   planet?: PlanetStyle;
+  orbit?: OrbitStyle;
 }
 
 interface Migration {
@@ -164,7 +166,7 @@ export class Session {
 
   setIdentity(identity: Omit<Identity, 'id'>) {
     this.identity = { ...identity, id: this.meId };
-    this.send({ t: 'profile', name: identity.name, color: identity.color, avatar: identity.avatar ?? null, planet: identity.planet });
+    this.send({ t: 'profile', name: identity.name, color: identity.color, avatar: identity.avatar ?? null, planet: identity.planet, orbit: identity.orbit ?? null });
   }
 
   leave() {
@@ -241,6 +243,7 @@ export class Session {
         color: this.identity.color,
         avatar: this.identity.avatar,
         planet: this.identity.planet,
+        orbit: this.identity.orbit,
         build: APP_BUILD,
       },
       presence: this.presence(),

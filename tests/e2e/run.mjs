@@ -203,7 +203,17 @@ async function chamadaCompleta(opened) {
   await b.page.getByRole('button', { name: 'Configurações' }).last().click();
   await b.page.locator('.avatar-buttons input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: png });
   await b.page.locator('.settings__close').click();
-  await waitFor(a.page, () => [...document.querySelectorAll('.people .person')].some((el) => el.textContent.includes('Bruno') && el.querySelector('img.planet__photo')), null, 10_000);
+  await waitFor(
+    a.page,
+    () => {
+      const s = window.__orbita.getApp();
+      const bruno = s.room.members.find((m) => m.name === 'Bruno');
+      const row = [...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Bruno'));
+      return !!bruno && !!s.avatars[bruno.id] && !!row?.querySelector('img.planet__photo, img.planet__img');
+    },
+    null,
+    15_000,
+  );
   log('  foto de perfil ok');
 
   // planeta personalizado (anéis e luas) aparece para os outros; o host tem coroa
@@ -214,8 +224,11 @@ async function chamadaCompleta(opened) {
   await waitFor(
     a.page,
     () => {
+      const bruno = window.__orbita.getApp().room.members.find((m) => m.name === 'Bruno');
       const row = [...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Bruno'));
-      return row && row.querySelectorAll('.planet__ring').length === 4 && row.querySelectorAll('.planet__moon').length === 3;
+      // no 3D a lista mostra uma imagem do planeta; no 2D, os anéis e luas em CSS
+      const drawn = row && (row.querySelector('img.planet__img') || (row.querySelectorAll('.planet__ring').length === 4 && row.querySelectorAll('.planet__moon').length === 3));
+      return bruno?.planet?.rings === 2 && bruno.planet.moons === 3 && !!drawn;
     },
     null,
     10_000,
@@ -228,6 +241,36 @@ async function chamadaCompleta(opened) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);
   }
   log('  malha de voz completa');
+
+  // órbita em 3D: a cena desenha; o Bruno arrasta o próprio planeta e a órbita nova chega para a Ana
+  await waitFor(b.page, () => !!window.__orbitaScene && !!document.querySelector('.orbit3d__canvas'), null, 30_000);
+  await b.page.waitForTimeout(1_500);
+  const dragId = await b.page.evaluate(() => window.__orbita.getApp().meId);
+  const box3d = await b.page.locator('.call .orbit3d').first().boundingBox();
+  const dragAt = await b.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
+  await b.page.mouse.move(box3d.x + dragAt.x, box3d.y + dragAt.y);
+  await b.page.mouse.down();
+  const to = { x: box3d.x + box3d.width * 0.85, y: box3d.y + box3d.height * 0.32 };
+  for (let i = 1; i <= 10; i++) {
+    await b.page.mouse.move(box3d.x + dragAt.x + ((to.x - box3d.x - dragAt.x) * i) / 10, box3d.y + dragAt.y + ((to.y - box3d.y - dragAt.y) * i) / 10);
+    await b.page.waitForTimeout(16);
+  }
+  for (let i = 1; i <= 4; i++) {
+    await b.page.mouse.move(to.x, to.y + i * 20);
+    await b.page.waitForTimeout(12);
+  }
+  await b.page.mouse.up();
+  const myOrbit = await b.page.evaluate(() => window.__orbita.getApp().profile.orbit);
+  if (!myOrbit || !(myOrbit.radius > 2)) throw new Error('arrastar o planeta não mudou a órbita');
+  await waitFor(a.page, ([id, r]) => window.__orbita.getApp().room.members.find((m) => m.id === id)?.orbit?.radius === r, [dragId, myOrbit.radius], 10_000);
+  log('  órbita 3D: Bruno arrastou o planeta (raio', myOrbit.radius, 'inclinação', myOrbit.incl, 'velocidade', myOrbit.speed, 'sentido', myOrbit.dir, ') e a Ana recebeu');
+  // câmera: centralizar e desligar/ligar o 3D (imagem parada)
+  await a.page.getByRole('button', { name: 'Centralizar a câmera' }).first().click();
+  await a.page.getByRole('button', { name: /3D ligado/ }).first().click();
+  await waitFor(a.page, () => !!document.querySelector('.orbit3d__still'), null, 20_000);
+  await a.page.getByRole('button', { name: /3D desligado/ }).first().click();
+  await waitFor(a.page, () => !!document.querySelector('.orbit3d__canvas') && !document.querySelector('.orbit3d__still'), null, 20_000);
+  log('  3D desligado vira imagem parada e volta ao ligar');
 
   // barras de qualidade da conexão, com ping e perda no título
   await waitFor(a.page, () => document.querySelectorAll('.people .signal').length >= 2, null, 15_000);
@@ -292,13 +335,18 @@ async function chamadaCompleta(opened) {
 
   await a.page.getByRole('button', { name: 'Ligar câmera' }).last().click();
   // a câmera aparece dentro do planeta de quem ligou
-  await waitFor(b.page, () => [...document.querySelectorAll('.orbit .planet.has-video video')].some((v) => v.videoWidth > 0));
+  await waitFor(b.page, () => {
+    const s = window.__orbita.getApp();
+    const ana = s.room.members.find((m) => m.name === 'Ana');
+    const v3d = window.__orbitaScene?.entries?.get(ana.id)?.videoEl;
+    return (v3d && v3d.videoWidth > 0) || [...document.querySelectorAll('.orbit .planet.has-video video')].some((v) => v.videoWidth > 0);
+  });
   // clicar no planeta com câmera abre grande no centro; fechar volta para a órbita
   await b.page.getByRole('button', { name: 'Ana: ver câmera' }).click();
   await waitFor(b.page, () => [...document.querySelectorAll('.stage-featured .tile video')].some((v) => v.videoWidth > 0), null, 10_000);
   await b.page.locator('.stage-featured .tile').hover();
   await b.page.getByRole('button', { name: /Fechar a câmera/ }).click();
-  await waitFor(b.page, () => !document.querySelector('.stage-featured') && !!document.querySelector('.orbit'), null, 10_000);
+  await waitFor(b.page, () => !document.querySelector('.stage-featured') && !!document.querySelector('.orbit, .orbit3d'), null, 10_000);
   if (await b.page.evaluate(() => !!document.querySelector('.call .grid'))) throw new Error('ainda aparecem quadrados no centro');
   log('  câmera ok: dentro do planeta, abre grande ao clicar e fecha de volta');
 
@@ -310,13 +358,13 @@ async function chamadaCompleta(opened) {
   await waitFor(b.page, () => window.__orbita.getApp().live?.viewers === 1, null, 15_000);
   log('  live ok (1 espectador)');
   // a live fica grande; embaixo, a faixa de órbita, que dá para esconder e mostrar
-  if (!(await a.page.evaluate(() => !!document.querySelector('.stage-featured .tile--live') && !!document.querySelector('.orbit-strip .orbit')))) {
+  if (!(await a.page.evaluate(() => !!document.querySelector('.stage-featured .tile--live') && !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d')))) {
     throw new Error('a live não ficou em destaque com a faixa de órbita embaixo');
   }
   await a.page.getByRole('button', { name: 'Esconder os planetas' }).click();
   await waitFor(a.page, () => !document.querySelector('.orbit-strip') && !!document.querySelector('.orbit-strip__show'));
   await a.page.locator('.orbit-strip__show').click();
-  await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit'));
+  await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d'));
   log('  live em destaque com a faixa de planetas (esconder e mostrar ok)');
 
   // volume da live, separado do volume da voz

@@ -7,7 +7,7 @@
  * quando estão em segundo plano.
  */
 
-export type KeyAction = 'toggleMic' | 'toggleDeafen' | 'pushToTalk' | 'toggleCamera' | 'toggleLive' | 'toggleChat';
+export type KeyAction = 'toggleMic' | 'toggleDeafen' | 'pushToTalk' | 'toggleCamera' | 'toggleLive' | 'toggleChat' | 'saveClip';
 
 export type Keybinds = Record<KeyAction, string | null>;
 
@@ -18,6 +18,7 @@ export const KEY_ACTIONS: Array<{ id: KeyAction; label: string; hint?: string }>
   { id: 'toggleCamera', label: 'Ligar/desligar câmera' },
   { id: 'toggleLive', label: 'Abrir a live', hint: 'Inicia uma live ou abre as opções da live em andamento.' },
   { id: 'toggleChat', label: 'Mostrar/esconder o chat' },
+  { id: 'saveClip', label: 'Salvar clipe do último minuto', hint: 'Precisa dos clipes ligados em Configurações › Voz e vídeo.' },
 ];
 
 export const DEFAULT_KEYBINDS: Keybinds = {
@@ -27,6 +28,7 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   toggleCamera: null,
   toggleLive: null,
   toggleChat: null,
+  saveClip: null,
 };
 
 const MODIFIER_CODES = new Set([

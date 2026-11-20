@@ -716,3 +716,77 @@
 .signal--1 i.is-lit {
   background: var(--danger);
 }
+
+/* ───────── gravação ───────── */
+
+.ctrl.is-recording {
+  background: var(--live);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.25);
+}
+
+.rec-notice {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px auto 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(244, 63, 94, 0.16);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #fecdd3;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rec-notice__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: rec-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-notice__dot {
+    animation: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .call-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 8px 14px;
+  }
+
+  .ctrl {
+    width: 42px;
+    height: 42px;
+  }
+
+  .ctrl svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ctrl--leave {
+    width: 52px;
+  }
+
+  .sound-panel {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 76px;
+    width: auto;
+    transform: none;
+  }
+}

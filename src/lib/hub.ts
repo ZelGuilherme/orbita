@@ -119,6 +119,7 @@ export class Hub {
   private avatars = new Map<string, string>();
   /** Último som do soundboard de cada um (limite de um a cada 2 s). */
   private soundAt = new Map<string, number>();
+  private clipAt = new Map<string, number>();
   private statePending = false;
   private stopped = false;
 
@@ -255,6 +256,7 @@ export class Hub {
     this.state.members = this.state.members.filter((m) => m.id !== id);
     this.fxLimits.delete(id);
     this.soundAt.delete(id);
+    this.clipAt.delete(id);
     this.drawings.delete(id);
     this.avatars.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
@@ -310,6 +312,13 @@ export class Hub {
       case 'speaking':
         this.broadcast({ t: 'speaking', memberId: me.id, on: !!msg.on }, me.id);
         return;
+      case 'clip': {
+        const now = Date.now();
+        if (!me.voiceChannelId || now - (this.clipAt.get(me.id) ?? 0) < 10_000) return;
+        this.clipAt.set(me.id, now);
+        this.system(`🎬 **${me.name}** salvou um clipe da chamada.`);
+        return;
+      }
       case 'sound': {
         const now = Date.now();
         if (!me.voiceChannelId || !(SOUND_IDS as readonly string[]).includes(msg.id)) return;
@@ -441,9 +450,11 @@ export class Hub {
     if (typeof presence.deafened === 'boolean') member.deafened = presence.deafened;
     if (typeof presence.cameraOn === 'boolean') member.cameraOn = presence.cameraOn;
     if ('live' in presence) member.live = validLive(presence.live);
+    if (typeof presence.recording === 'boolean') member.recording = presence.recording;
     if (!member.voiceChannelId) {
       member.cameraOn = false;
       member.live = null;
+      member.recording = false;
     }
   }
 

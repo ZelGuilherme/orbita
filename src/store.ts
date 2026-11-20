@@ -81,6 +81,8 @@ export interface AppState {
   pttDown: boolean;
   cameraOn: boolean;
   live: LiveInfo | null;
+  /** Estou gravando a chamada. */
+  recording: { since: number; video: boolean } | null;
   liveSurface: LiveSurface | null;
   localCamera: MediaStream | null;
   localScreen: MediaStream | null;
@@ -140,6 +142,7 @@ const roomDefaults = () => ({
   pttDown: false,
   cameraOn: false,
   live: null,
+  recording: null,
   liveSurface: null,
   localCamera: null,
   localScreen: null,

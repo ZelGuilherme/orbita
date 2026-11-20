@@ -51,6 +51,8 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
         if (extra) localStorage.setItem('orbita.settings.v1', JSON.stringify(extra));
       }
       window.__displayCalls = 0;
+      // sem a janela "salvar como" (a gravação cai no download comum)
+      window.showSaveFilePicker = undefined;
       // getDisplayMedia falso: canvas animado + tom (testa a live sem tela de verdade)
       navigator.mediaDevices.getDisplayMedia = async () => {
         window.__displayCalls++;
@@ -330,6 +332,38 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.live-volume input[type=range]').fill('100');
   await waitFor(a.page, () => ![...document.querySelectorAll('audio')].some((el) => el.muted));
   log('  volume da live até 300% ok');
+
+  // gravação: a Ana grava (vozes + a live do Bruno em destaque); todo mundo vê o aviso vermelho
+  await a.page.getByRole('button', { name: 'Gravar a chamada' }).click();
+  await waitFor(c.page, () => document.querySelector('.rec-notice')?.textContent?.includes('Gravando: Ana'), null, 10_000);
+  await waitFor(b.page, () => document.querySelector('.rec-notice')?.textContent?.includes('Ana'), null, 10_000);
+  if (!(await a.page.evaluate(() => window.__orbita.getApp().recording?.video))) throw new Error('a gravação não pegou a live em destaque');
+  await new Promise((r) => setTimeout(r, 3_000));
+  const [recFile] = await Promise.all([a.page.waitForEvent('download', { timeout: 30_000 }), a.page.getByRole('button', { name: 'Parar a gravação' }).click()]);
+  const recSize = statSync(await recFile.path()).size;
+  await recFile.saveAs(join(SHOTS, 'gravacao.webm'));
+  if (recSize < 20_000 || !recFile.suggestedFilename().endsWith('.webm')) throw new Error(`gravação estranha: ${recFile.suggestedFilename()} ${recSize} bytes`);
+  await waitFor(c.page, () => !document.querySelector('.rec-notice'), null, 10_000);
+  log('  gravação ok:', recFile.suggestedFilename(), Math.round(recSize / 1024), 'KB; aviso apareceu e sumiu para todos');
+
+  // clipes: desligados por padrão; ligando, o botão aparece e salva o último trecho
+  if (await a.page.getByRole('button', { name: 'Salvar clipe do último minuto' }).count()) throw new Error('clipes ligados por padrão');
+  await a.page.evaluate(() => {
+    const s = window.__orbita.getApp().settings;
+    localStorage.setItem('orbita.settings.v1', JSON.stringify({ ...s, clips: true }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'orbita.settings.v1', storageArea: localStorage }));
+  });
+  await new Promise((r) => setTimeout(r, 3_000));
+  const [clipFile] = await Promise.all([a.page.waitForEvent('download', { timeout: 30_000 }), a.page.getByRole('button', { name: 'Salvar clipe do último minuto' }).click()]);
+  const clipSize = statSync(await clipFile.path()).size;
+  if (clipSize < 5_000) throw new Error(`clipe vazio: ${clipSize} bytes`);
+  await waitFor(c.page, () => document.querySelector('.messages')?.textContent?.includes('salvou um clipe'), null, 10_000);
+  await a.page.evaluate(() => {
+    const s = window.__orbita.getApp().settings;
+    localStorage.setItem('orbita.settings.v1', JSON.stringify({ ...s, clips: false }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'orbita.settings.v1', storageArea: localStorage }));
+  });
+  log('  clipe ok:', clipFile.suggestedFilename(), Math.round(clipSize / 1024), 'KB; o chat avisou');
 
   // live travada: quem transmite para de mandar (imagem e som) sem fechar a conexão;
   // quem assiste percebe sozinho e reconecta

@@ -516,6 +516,15 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
         onChange={(soundboardOthers) => updateSettings({ soundboardOthers })}
       />
 
+      <h4 className="settings__subtitle">Gravação e clipes</h4>
+      <Switch
+        label="Clipes do último minuto"
+        hint="Guarda sempre o último minuto da chamada (com a live em destaque, se houver) para salvar com o botão ✂️ ou um atalho. Usa um pouco mais do computador; fica tudo só no seu navegador."
+        checked={settings.clips}
+        onChange={(clips) => updateSettings({ clips })}
+      />
+      <p className="hint">O botão ⏺ da barra da chamada grava a chamada inteira até você parar. Todo mundo vê um aviso vermelho enquanto alguém grava.</p>
+
       <h4 className="settings__subtitle">Câmera e outros</h4>
       <div className="grid-2">
         <DeviceSelect

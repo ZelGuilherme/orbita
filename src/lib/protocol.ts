@@ -66,6 +66,8 @@ export interface Presence {
   deafened: boolean;
   cameraOn: boolean;
   live: LiveInfo | null;
+  /** Está gravando a chamada (todo mundo vê o aviso). */
+  recording?: boolean;
 }
 
 export interface Member extends Presence {
@@ -183,6 +185,8 @@ export type ClientMsg =
   | { t: 'speaking'; on: boolean }
   /** Soundboard: o nome do som (cada um toca o seu). */
   | { t: 'sound'; id: string }
+  /** Salvei um clipe: o host avisa no chat. */
+  | { t: 'clip' }
   | { t: 'presence'; presence: Partial<Presence> }
   | { t: 'profile'; name: string; color: string; avatar?: string | null; planet?: PlanetStyle }
   | { t: 'live:watch'; streamerId: string; on: boolean }

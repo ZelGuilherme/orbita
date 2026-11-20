@@ -56,6 +56,7 @@ import { canFloat, openFloating } from './Floating';
 import { FxBar, FxLayer } from './LiveFx';
 import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
+import { ClipButton, RecordButton, RecordingNotice } from './Capture';
 import { SoundButton } from './SoundPanel';
 import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
@@ -98,6 +99,7 @@ export function CallView() {
   return (
     <section className="call">
       <StageHeader room={room} count={members.length} />
+      <RecordingNotice members={members} />
       <div className={cx('call__stage', featured && 'is-featured')}>
         {featured ? (
           <div className={cx('stage-featured', orbitHidden && 'is-orbit-hidden')}>
@@ -652,6 +654,8 @@ function CallControls() {
         </button>
       )}
       <SoundButton />
+      <RecordButton />
+      <ClipButton />
       <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
         <PhoneOff />
       </button>

@@ -240,6 +240,11 @@ export class MediaEngine {
     await this.voiceProc.update(voiceOptions(this.settings()));
   }
 
+  /** A minha voz como sai para a chamada (com filtros e efeito), para a gravação. */
+  localVoiceTrack(): MediaStreamTrack | null {
+    return this.voiceProc?.track ?? this.micTrack ?? null;
+  }
+
   /** O filtro de IA escolhido não carregou. */
   get voiceFilterFailed() {
     return !!this.voiceProc?.suppressorFailed;

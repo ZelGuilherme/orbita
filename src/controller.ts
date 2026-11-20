@@ -31,6 +31,7 @@ import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
 import type { AdminAction, Attachment, ChatMessage, FileAttachment, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
+import { CallRecording, canRecord, ClipBuffer, extensionOf, Mixer } from './lib/recorder';
 import { playSoundboard, SOUNDS, validSound } from './lib/soundboard';
 import { setSoundsEnabled, sfx } from './lib/sounds';
 import { watchForUpdates } from './lib/update';
@@ -50,7 +51,7 @@ import {
   type PenPrefs,
 } from './lib/storage';
 import { copyText, errorMessage, inviteFromHash, inviteLink, parseRoomCode, randomId } from './lib/util';
-import { getApp, resetRoomState, setApp, textChannelOf, toast, voiceChannelOf, type AppState, type FxTool } from './store';
+import { getApp, resetRoomState, setApp, textChannelOf, toast, useApp, voiceChannelOf, type AppState, type FxTool } from './store';
 
 /**
  * Cola entre a sessão P2P, a mídia e a interface. Os componentes só chamam estas
@@ -85,6 +86,7 @@ function presence(): Presence {
     deafened: s.deafened,
     cameraOn: s.cameraOn,
     live: s.live,
+    recording: !!s.recording,
   };
 }
 
@@ -176,6 +178,10 @@ function applyState(state: RoomState, meId: string, first: boolean) {
         sfx.live();
       }
     }
+    for (const m of state.members) {
+      const was = prev.members.find((p) => p.id === m.id);
+      if (m.recording && !was?.recording && m.id !== meId) toast(`🔴 ${m.name} começou a gravar a chamada`, 'info', 5_000);
+    }
     if (prev.hostId !== state.hostId && state.hostId !== meId) {
       const host = state.members.find((m) => m.id === state.hostId);
       if (host) toast(`👑 ${host.name} agora é o host`);
@@ -257,6 +263,7 @@ function onEnded(reason: EndReason) {
   const s = getApp();
   const roomName = s.room?.name ?? '';
   const code = s.code ?? '';
+  stopCapture(true);
   media?.destroy();
   media = null;
   files?.stop();
@@ -608,6 +615,7 @@ export async function joinCall() {
   else if (engine.voiceFilterFailed) toast('Não consegui carregar a supressão de ruído escolhida. A voz está saindo sem ela.', 'error', 6_000);
   setApp({ inCall: true, micOn, joiningVoice: false, peopleOpen: false });
   engine.setMicEnabled(effectiveMic());
+  syncClips();
   sendPresence({ voiceChannelId: channelId, micOn, deafened: getApp().deafened, cameraOn: false, live: null });
   sfx.join();
   if (getApp().settings.voiceMode === 'ptt' && !getApp().settings.keybinds.pushToTalk) {
@@ -617,6 +625,7 @@ export async function joinCall() {
 
 export function leaveCall(silent = false) {
   if (!getApp().inCall) return;
+  stopCapture(false);
   media?.leaveVoice();
   setApp({ inCall: false, cameraOn: false, live: null, liveSurface: null, localCamera: null, localScreen: null, floating: false, pttDown: false });
   sendPresence({ voiceChannelId: null, cameraOn: false, live: null });
@@ -683,6 +692,194 @@ export function playSound(id: SoundId) {
   if (Date.now() < s.soundCooldown) return;
   setApp({ soundCooldown: Date.now() + SOUND_COOLDOWN_MS });
   session.send({ t: 'sound', id });
+}
+
+// ───────────────────────── gravação e clipes ─────────────────────────
+
+let mixer: Mixer | null = null;
+let mixerTimer = 0;
+let mixerUnsub: (() => void) | null = null;
+let recorder: CallRecording | null = null;
+let recordName = '';
+let clipBuffer: ClipBuffer | null = null;
+
+/** A live em destaque (a escolhida ou, sem escolha, a que estiver no ar; a dos outros primeiro). */
+function featuredLive(s: AppState): { id: string; name: string; stream: MediaStream | null } | null {
+  const callId = voiceChannelOf(s.room)?.id;
+  const members = s.room?.members.filter((m) => m.voiceChannelId && m.voiceChannelId === callId) ?? [];
+  const chosen = s.focus?.startsWith('live:') ? members.find((m) => m.id === s.focus!.slice(5) && m.live) : undefined;
+  const live = chosen ?? members.find((m) => m.live && m.id !== s.meId) ?? members.find((m) => m.live);
+  if (!live) return null;
+  const stream = live.id === s.meId ? s.localScreen : (s.liveStreams[live.id] ?? null);
+  return { id: live.id, name: live.name, stream };
+}
+
+/** Atualiza o que entra na gravação: vozes, a minha voz, o som e a imagem da live em destaque. */
+function syncMixer() {
+  if (!mixer) return;
+  const s = getApp();
+  const tracks: MediaStreamTrack[] = [];
+  for (const stream of Object.values(s.voiceStreams)) tracks.push(...stream.getAudioTracks());
+  const mine = media?.localVoiceTrack();
+  if (mine) tracks.push(mine);
+  const live = featuredLive(s);
+  if (live?.stream) tracks.push(...live.stream.getAudioTracks());
+  mixer.setAudio(tracks);
+  mixer.setVideo(live?.stream ?? null, live ? `Live de ${live.name} (conectando…)` : 'Sem live no momento');
+}
+
+function ensureMixer(): Mixer {
+  if (!mixer) {
+    mixer = new Mixer();
+    mixerUnsub = useApp.subscribe((s, prev) => {
+      if (s.voiceStreams !== prev.voiceStreams || s.liveStreams !== prev.liveStreams || s.focus !== prev.focus || s.room !== prev.room || s.localScreen !== prev.localScreen) syncMixer();
+    });
+    // a minha voz muda de faixa quando troco de microfone: confere de tempos em tempos
+    mixerTimer = window.setInterval(syncMixer, 3_000);
+  }
+  syncMixer();
+  return mixer;
+}
+
+function releaseMixer() {
+  if (recorder || clipBuffer || !mixer) return;
+  mixerUnsub?.();
+  mixerUnsub = null;
+  clearInterval(mixerTimer);
+  mixer.dispose();
+  mixer = null;
+}
+
+const stamp = () => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+};
+const roomSlug = () =>
+  (getApp().room?.name ?? 'orbita')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 40) || 'orbita';
+/** Começo do nome dos arquivos: "orbita-nome-da-sala" (sem repetir quando a sala já se chama Órbita…). */
+const fileBase = () => {
+  const slug = roomSlug();
+  return slug.startsWith('orbita') ? slug : `orbita-${slug}`;
+};
+
+type SavePicker = (opts: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{
+  createWritable(): Promise<FileSystemWritableFileStream>;
+}>;
+
+/** Grava a chamada: o som de todo mundo e, se houver, a live em destaque. Todo mundo vê o aviso. */
+export async function toggleRecording() {
+  if (recorder) {
+    await stopRecording();
+    return;
+  }
+  const s = getApp();
+  if (!s.inCall || !media) return;
+  if (!canRecord()) {
+    toast('Este navegador não consegue gravar.', 'error');
+    return;
+  }
+  const video = !!featuredLive(s);
+  const ext = 'webm';
+  recordName = `${fileBase()}-${stamp()}.${ext}`;
+  // no Chrome/Edge/Brave dá para gravar direto num arquivo (sem limite de memória)
+  let sink: FileSystemWritableFileStream | null = null;
+  const picker = (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+  if (picker) {
+    try {
+      const handle = await picker({
+        suggestedName: recordName,
+        types: [video ? { description: 'Vídeo WebM', accept: { 'video/webm': ['.webm'] } } : { description: 'Áudio WebM', accept: { 'audio/webm': ['.webm'] } }],
+      });
+      sink = await handle.createWritable();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      sink = null;
+    }
+  }
+  if (!getApp().inCall || recorder) {
+    void sink?.close();
+    return;
+  }
+  const m = ensureMixer();
+  const stream = new MediaStream(video ? [m.audio, m.videoTrack()] : [m.audio]);
+  try {
+    recorder = new CallRecording(stream, video, sink);
+  } catch (err) {
+    void sink?.close();
+    releaseMixer();
+    toast(`Não consegui começar a gravar: ${errorMessage(err)}.`, 'error');
+    return;
+  }
+  setApp({ recording: { since: Date.now(), video } });
+  sendPresence({ recording: true });
+  toast(video ? 'Gravando: vozes e a live em destaque.' : 'Gravando o áudio da chamada.', 'success');
+}
+
+async function stopRecording(quiet = false) {
+  const rec = recorder;
+  if (!rec) return;
+  recorder = null;
+  setApp({ recording: null });
+  sendPresence({ recording: false });
+  const blob = await rec.stop();
+  releaseMixer();
+  if (blob) {
+    const name = recordName.replace(/\.webm$/, `.${extensionOf(rec.mime)}`);
+    saveBlob(blob, name);
+  }
+  if (!quiet) toast(blob ? 'Gravação salva nos downloads.' : 'Gravação salva no arquivo escolhido.', 'success');
+}
+
+/** Liga/desliga o "último minuto" conforme as configurações e se estou na chamada. */
+function syncClips() {
+  const s = getApp();
+  const want = s.settings.clips && s.inCall && canRecord();
+  if (want && !clipBuffer) {
+    const m = ensureMixer();
+    clipBuffer = new ClipBuffer(() => {
+      const video = !!featuredLive(getApp());
+      return { stream: new MediaStream(video ? [m.audio, m.videoTrack()] : [m.audio]), video };
+    });
+  } else if (!want && clipBuffer) {
+    clipBuffer.stop();
+    clipBuffer = null;
+    releaseMixer();
+  }
+}
+
+export async function saveClip() {
+  const s = getApp();
+  if (!s.inCall) return;
+  if (!clipBuffer) {
+    toast('Ligue os clipes em Configurações › Voz e vídeo para salvar o último minuto.', 'info', 5_000);
+    return;
+  }
+  const clip = await clipBuffer.clip();
+  if (!clip || clip.blob.size === 0) {
+    toast('Ainda não há nada para o clipe.', 'error');
+    return;
+  }
+  saveBlob(clip.blob, `${fileBase()}-clipe-${stamp()}.${extensionOf(clip.mime)}`);
+  session?.send({ t: 'clip' });
+  toast(`🎬 Clipe salvo (${clip.seconds} s).`, 'success');
+}
+
+/** Saindo da chamada ou da sala: termina a gravação (salvando) e os clipes. */
+function stopCapture(leavingRoom: boolean) {
+  if (clipBuffer) {
+    clipBuffer.stop();
+    clipBuffer = null;
+  }
+  // a gravação solta o mixer sozinha depois de terminar de salvar
+  if (recorder) void stopRecording(leavingRoom);
+  else releaseMixer();
 }
 
 // ───────────────────────── lives ─────────────────────────
@@ -1030,6 +1227,7 @@ function applySettings(settings: Settings) {
       if (changed('noiseFilter') && media?.voiceFilterFailed) toast('Não consegui carregar essa supressão de ruído.', 'error');
     });
   }
+  if (changed('clips')) syncClips();
   if (changed('voiceMode')) {
     setApp({ pttDown: false });
     media?.setMicEnabled(effectiveMic());
@@ -1092,12 +1290,15 @@ function runAction(action: KeyAction) {
     case 'toggleChat':
       toggleChat();
       return;
+    case 'saveClip':
+      if (s.inCall) void saveClip();
+      return;
     default:
       return;
   }
 }
 
-const TOGGLES: KeyAction[] = ['toggleMic', 'toggleDeafen', 'toggleCamera', 'toggleLive', 'toggleChat'];
+const TOGGLES: KeyAction[] = ['toggleMic', 'toggleDeafen', 'toggleCamera', 'toggleLive', 'toggleChat', 'saveClip'];
 
 function onKeyDown(e: KeyboardEvent) {
   if (!session || shortcutsPaused) return;

@@ -120,6 +120,7 @@ export class VoiceProcessor {
       channelCount: 1,
       channelCountMode: 'explicit',
       outputChannelCount: [1],
+      processorOptions: { threshold: opts.threshold, gate: opts.noiseGate, auto: opts.autoThreshold },
     });
     this.threshold = opts.threshold;
     this.gate.port.postMessage({ threshold: opts.threshold, gate: opts.noiseGate, auto: opts.autoThreshold });

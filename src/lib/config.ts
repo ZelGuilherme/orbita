@@ -17,6 +17,8 @@ export const MAX_TEXT_LENGTH = 4000;
 export const MAX_IMAGE_CHARS = 2_200_000;
 /** Quanto de imagem o host guarda no histórico para quem entrar depois. */
 export const HISTORY_IMAGE_BUDGET = 9_000_000;
+/** Arquivos enviados pelo chat (vão direto do computador de quem mandou para quem baixa). */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 export const HEARTBEAT_MS = 4_000;
 export const CLIENT_TIMEOUT_MS = 15_000;

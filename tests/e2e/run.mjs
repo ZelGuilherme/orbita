@@ -5,7 +5,7 @@
 // Sobe o Vite em modo dev, abre várias pessoas no Edge/Chrome instalado (com câmera e
 // microfone falsos) e usa o servidor público do PeerJS. Capturas vão para test-results/.
 // Variáveis: E2E_BROWSER=chrome|msedge, E2E_HEADED=1 para ver as janelas.
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -147,6 +147,50 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.reaction-picker button').first().click();
   await waitFor(b.page, () => !!document.querySelector('.reaction'));
   log('  chat e reação ok');
+
+  // responder: a citação aparece para todos
+  const original = () => b.page.locator('.msg', { hasText: 'Testando a órbita' }).first();
+  await original().hover();
+  await original().getByRole('button', { name: 'Responder' }).click();
+  await b.page.locator('.composer__reply').waitFor();
+  await b.page.locator('.composer textarea').fill('Respondendo a mim mesmo');
+  await b.page.keyboard.press('Enter');
+  await waitFor(c.page, () => window.__orbita.getApp().messages.some((m) => m.text === 'Respondendo a mim mesmo' && m.replyTo?.authorName === 'Bruno'));
+  await waitFor(c.page, () => [...document.querySelectorAll('.msg__reply')].some((el) => el.textContent.includes('Testando a órbita')));
+  log('  responder ok');
+
+  // fixar: só o host tem o botão; a barra de fixadas aparece para todos
+  await original().hover();
+  if ((await original().getByRole('button', { name: 'Fixar' }).count()) !== 0) throw new Error('quem não é host conseguiu fixar');
+  const pinTarget = a.page.locator('.msg', { hasText: 'Testando a órbita' }).first();
+  await pinTarget.hover();
+  await pinTarget.getByRole('button', { name: 'Fixar' }).click();
+  await waitFor(c.page, () => document.querySelector('.pinned-bar')?.textContent?.includes('Testando a órbita'));
+  await c.page.locator('.pinned-bar__main').click();
+  await c.page.locator('.pinned-list__go').first().click();
+  await waitFor(c.page, () => !document.querySelector('.pinned-list'));
+  log('  fixar ok (só o host)');
+
+  // busca sem diferenciar acento e maiúscula
+  await c.page.getByRole('button', { name: 'Buscar no chat' }).click();
+  await c.page.locator('.chat-search input').fill('TESTÁNDO');
+  await waitFor(c.page, () => document.querySelectorAll('.search-hit').length >= 1);
+  await c.page.locator('.search-hit').first().click();
+  await waitFor(c.page, () => !document.querySelector('.chat-search') && !!document.querySelector('.msg'));
+  log('  busca ok');
+
+  // arquivo: vai direto do computador da Ana para quem baixa
+  const big = Buffer.alloc(3 * 1024 * 1024 + 321, 7);
+  await a.page.locator('input[aria-label="Escolher arquivo"]').setInputFiles({ name: 'dados.bin', mimeType: 'application/octet-stream', buffer: big });
+  await a.page.locator('.composer__file').waitFor();
+  await a.page.locator('.composer textarea').fill('segue o arquivo');
+  await a.page.keyboard.press('Enter');
+  const card = c.page.locator('.file-card', { hasText: 'dados.bin' });
+  await card.waitFor();
+  const [download] = await Promise.all([c.page.waitForEvent('download', { timeout: 60_000 }), card.getByRole('button', { name: /Baixar/ }).click()]);
+  const got = statSync(await download.path()).size;
+  if (got !== big.length) throw new Error(`arquivo chegou com ${got} bytes, esperado ${big.length}`);
+  log('  arquivo P2P ok:', (got / 1024 / 1024).toFixed(1), 'MB baixados direto de quem mandou');
 
   // foto de perfil: o Bruno escolhe uma foto e a Ana vê na lista de pessoas
   const png = await b.page.screenshot({ clip: { x: 0, y: 0, width: 64, height: 64 } });
@@ -381,6 +425,9 @@ async function chamadaCompleta(opened) {
   await c.page.keyboard.press('Enter');
   await waitFor(b.page, () => document.querySelector('.messages')?.textContent?.includes('depois da troca de host'));
   log('  chat e histórico ok depois da migração');
+  // quem mandou o arquivo saiu: ele fica indisponível
+  await waitFor(c.page, () => [...document.querySelectorAll('.file-card')].some((el) => el.textContent.includes('indisponível')));
+  log('  arquivo de quem saiu aparece como indisponível');
 
   await b.page.locator('.people .person', { hasText: 'Carla' }).click();
   await b.page.getByRole('button', { name: /Remover da órbita/ }).click();
@@ -459,6 +506,8 @@ for (const [name, scenario] of [
   ['chamada completa + queda do host', chamadaCompleta],
   ['passar a coroa + celular', passarCoroa],
 ]) {
+  // E2E_ONLY=trecho roda só os cenários cujo nome contém o trecho
+  if (process.env.E2E_ONLY && !name.includes(process.env.E2E_ONLY)) continue;
   log(`▶ ${name}`);
   const opened = [];
   try {

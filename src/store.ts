@@ -16,6 +16,14 @@ export type Modal =
   | { kind: 'image'; src: string; name: string }
   | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; action: () => void };
 
+export interface Transfer {
+  received: number;
+  size: number;
+  status: 'downloading' | 'done' | 'error';
+  /** gone: quem mandou saiu ou o arquivo não existe mais; lost: a conexão caiu. */
+  reason?: 'gone' | 'lost';
+}
+
 export interface Toast {
   id: number;
   text: string;
@@ -55,6 +63,10 @@ export interface AppState {
   speaking: Record<string, boolean>;
   /** Fotos de perfil de quem está na sala. */
   avatars: Record<string, string>;
+  /** Mensagem que estou respondendo (id). */
+  replyTo: string | null;
+  /** Arquivos que estou baixando: fileId → andamento. */
+  transfers: Record<string, Transfer>;
 
   // mídia local
   inCall: boolean;
@@ -113,6 +125,8 @@ const roomDefaults = () => ({
   typing: {},
   speaking: {},
   avatars: {},
+  replyTo: null,
+  transfers: {},
   inCall: false,
   joiningVoice: false,
   micOn: true,

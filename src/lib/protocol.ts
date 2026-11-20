@@ -99,13 +99,37 @@ export interface RoomState {
   banned: string[];
 }
 
-export interface Attachment {
+export interface ImageAttachment {
   kind: 'image';
   name: string;
   /** data:image/...;base64 — vazio quando o host já descartou a imagem do histórico. */
   dataUrl: string;
   width: number;
   height: number;
+}
+
+/**
+ * Arquivo que fica no computador de quem mandou: quem baixa busca direto dele (P2P).
+ * Só dá para baixar enquanto essa pessoa estiver na sala.
+ */
+export interface FileAttachment {
+  kind: 'file';
+  name: string;
+  /** Bytes. */
+  size: number;
+  mime: string;
+  fileId: string;
+  /** ID de membro de quem tem o arquivo (o hub confere que é quem mandou). */
+  ownerId: string;
+}
+
+export type Attachment = ImageAttachment | FileAttachment;
+
+/** Trecho da mensagem respondida (cópia, para continuar aparecendo se a original sumir). */
+export interface ReplyRef {
+  id: string;
+  authorName: string;
+  text: string;
 }
 
 export interface ChatMessage {
@@ -119,6 +143,10 @@ export interface ChatMessage {
   ts: number;
   editedAt?: number;
   attachment?: Attachment;
+  /** Resposta a outra mensagem. */
+  replyTo?: ReplyRef;
+  /** Fixada pelo host (quando). */
+  pinnedAt?: number;
   /** emoji -> IDs de quem reagiu */
   reactions?: Record<string, string[]>;
   system?: boolean;
@@ -146,7 +174,8 @@ export type ClientMsg =
     }
   | { t: 'pong' }
   | { t: 'bye' }
-  | { t: 'chat'; channelId: string; text: string; attachment?: Attachment }
+  | { t: 'chat'; channelId: string; text: string; attachment?: Attachment; replyTo?: string }
+  | { t: 'chat:pin'; id: string; pinned: boolean }
   | { t: 'chat:edit'; id: string; text: string }
   | { t: 'chat:delete'; id: string }
   | { t: 'chat:react'; id: string; emoji: string }

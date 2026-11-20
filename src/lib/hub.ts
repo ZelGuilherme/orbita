@@ -6,6 +6,7 @@ import {
   HEARTBEAT_MS,
   HISTORY_IMAGE_BUDGET,
   HUB_PREFIX,
+  MAX_FILE_BYTES,
   MAX_IMAGE_CHARS,
   MAX_MEMBERS,
   MAX_MESSAGES_PER_CHANNEL,
@@ -22,6 +23,8 @@ import type {
   AdminAction,
   Attachment,
   ChatMessage,
+  FileAttachment,
+  ImageAttachment,
   ClientMsg,
   FxStroke,
   HubMsg,
@@ -59,6 +62,10 @@ export const baseId = (memberId: string) => memberId.split('.')[0];
 
 const QUALITIES: LiveQuality[] = ['480p', '720p', '1080p', '1080p60'];
 const MEMBER_ID = /^[a-z0-9]{8,32}\.[a-z0-9]{4,12}$/;
+const FILE_ID = /^[a-z0-9]{10,32}$/;
+const MIME = /^[\w.+-]{1,60}\/[\w.+-]{1,80}$/;
+/** Mensagens fixadas ao mesmo tempo. */
+const MAX_PINS = 25;
 const IMAGE_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
 export function createRoom(code: string, name: string, hostId: string): HubInit {
@@ -278,7 +285,10 @@ export class Hub {
         this.drop(client, true);
         return;
       case 'chat':
-        this.chat(me, msg.channelId, msg.text, msg.attachment);
+        this.chat(me, msg.channelId, msg.text, msg.attachment, msg.replyTo);
+        return;
+      case 'chat:pin':
+        if (me.id === this.state.hostId) this.pin(me, msg.id, !!msg.pinned);
         return;
       case 'chat:edit':
         this.editMessage(me, msg.id, msg.text);
@@ -421,12 +431,13 @@ export class Hub {
     }
   }
 
-  private chat(me: Member, channelId: unknown, text: unknown, attachment: unknown) {
+  private chat(me: Member, channelId: unknown, text: unknown, attachment: unknown, replyTo: unknown) {
     const channel = this.textChannel(channelId);
     if (!channel) return;
     const body = clampText(text, MAX_TEXT_LENGTH).trim();
-    const image = validAttachment(attachment);
+    const image = validAttachment(attachment, me.id);
     if (!body && !image) return;
+    const original = this.findMessage(replyTo);
     const message: ChatMessage = {
       id: randomId(14),
       channelId: channel.id,
@@ -437,6 +448,10 @@ export class Hub {
       ts: Date.now(),
     };
     if (image) message.attachment = image;
+    if (original && original.channelId === channel.id) {
+      const quoted = original.text || (original.attachment?.kind === 'file' ? `📎 ${original.attachment.name}` : original.attachment ? '🖼️ imagem' : '');
+      message.replyTo = { id: original.id, authorName: original.authorName, text: clampText(quoted, 160) };
+    }
     this.addMessage(message);
     this.broadcast({ t: 'chat', message });
   }
@@ -460,6 +475,20 @@ export class Hub {
     if (!message || (message.authorId !== me.id && me.id !== this.state.hostId)) return;
     this.messages = this.messages.filter((m) => m !== message);
     this.broadcast({ t: 'chat:delete', id: message.id, channelId: message.channelId });
+  }
+
+  /** Host: fixa ou solta uma mensagem (aparece na barra do topo do chat). */
+  private pin(me: Member, id: unknown, pinned: boolean) {
+    const message = this.findMessage(id);
+    if (!message || !!message.pinnedAt === pinned) return;
+    if (pinned) {
+      if (this.messages.filter((m) => m.pinnedAt).length >= MAX_PINS) return;
+      message.pinnedAt = Date.now();
+    } else {
+      delete message.pinnedAt;
+    }
+    this.broadcast({ t: 'chat:update', message });
+    if (pinned) this.system(`📌 **${me.name}** fixou uma mensagem.`);
   }
 
   private react(me: Member, id: unknown, emoji: unknown) {
@@ -591,7 +620,7 @@ export class Hub {
     let budget = HISTORY_IMAGE_BUDGET;
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const attachment = this.messages[i].attachment;
-      if (!attachment?.dataUrl) continue;
+      if (attachment?.kind !== 'image' || !attachment.dataUrl) continue;
       budget -= attachment.dataUrl.length;
       if (budget < 0) this.messages[i] = { ...this.messages[i], attachment: { ...attachment, dataUrl: '' } };
     }
@@ -610,9 +639,23 @@ function validLive(value: unknown): LiveInfo | null {
   };
 }
 
-function validAttachment(value: unknown): Attachment | undefined {
+function validAttachment(value: unknown, ownerId: string): Attachment | undefined {
   if (!value || typeof value !== 'object') return undefined;
-  const a = value as Partial<Attachment>;
+  if ((value as { kind?: unknown }).kind === 'file') {
+    const f = value as Partial<FileAttachment>;
+    const size = Math.floor(Number(f.size));
+    if (typeof f.fileId !== 'string' || !FILE_ID.test(f.fileId) || !(size > 0 && size <= MAX_FILE_BYTES)) return undefined;
+    return {
+      kind: 'file',
+      name: clampText(f.name, 180).trim() || 'arquivo',
+      size,
+      mime: typeof f.mime === 'string' && MIME.test(f.mime) ? f.mime : 'application/octet-stream',
+      fileId: f.fileId,
+      // quem tem o arquivo é sempre quem mandou a mensagem
+      ownerId,
+    };
+  }
+  const a = value as Partial<ImageAttachment>;
   if (a.kind !== 'image' || typeof a.dataUrl !== 'string' || a.dataUrl.length > MAX_IMAGE_CHARS) return undefined;
   if (!IMAGE_URL.test(a.dataUrl)) return undefined;
   return {

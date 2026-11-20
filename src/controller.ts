@@ -1,4 +1,5 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
+import { FileShare, saveBlob, type TransferEvents } from './lib/files';
 import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
 import {
@@ -28,7 +29,7 @@ import { mentionsName } from './lib/markdown';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
-import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
+import type { AdminAction, Attachment, ChatMessage, FileAttachment, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { setSoundsEnabled, sfx } from './lib/sounds';
 import { watchForUpdates } from './lib/update';
@@ -57,6 +58,7 @@ import { getApp, resetRoomState, setApp, textChannelOf, toast, voiceChannelOf, t
 
 let session: Session | null = null;
 let media: MediaEngine | null = null;
+let files: FileShare | null = null;
 let typingSentAt = 0;
 let viewersTimer = 0;
 let initialized = false;
@@ -242,6 +244,8 @@ function onEnded(reason: EndReason) {
   const code = s.code ?? '';
   media?.destroy();
   media = null;
+  files?.stop();
+  files = null;
   session = null;
   watchTimers.forEach((timer) => clearTimeout(timer));
   watchTimers.clear();
@@ -385,6 +389,7 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
     media = new MediaEngine(mediaEvents(), () => getApp().settings);
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaMedia = media;
     media.attach(created.peer, created.meId);
+    files = new FileShare(created.peer, (peerId) => !!getApp().room?.members.some((m) => m.peerId === peerId), transferEvents());
     if (created.state) media.update(created.state);
     setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null, unread: 0, mentions: 0 });
     history.replaceState(null, '', `#/sala/${created.code}`);
@@ -491,11 +496,74 @@ export const showCamera = (memberId: string | null) => setApp({ focus: memberId 
 export const toggleChat = () => setChatOpen(!getApp().chatOpen);
 
 export function sendMessage(text: string, attachment?: Attachment) {
-  const channelId = textChannelOf(getApp().room)?.id;
+  const s = getApp();
+  const channelId = textChannelOf(s.room)?.id;
   if (!channelId) return;
-  session?.send({ t: 'chat', channelId, text, attachment });
+  const replyTo = s.replyTo && s.messages.some((m) => m.id === s.replyTo) ? s.replyTo : undefined;
+  session?.send({ t: 'chat', channelId, text, attachment, replyTo });
+  if (s.replyTo) setApp({ replyTo: null });
   typingSentAt = 0;
 }
+
+/** Responder a uma mensagem (null cancela). */
+export const setReply = (id: string | null) => setApp({ replyTo: id });
+
+/** Host: fixa ou solta uma mensagem. */
+export const pinMessage = (id: string, pinned: boolean) => session?.send({ t: 'chat:pin', id, pinned });
+
+// ───────────────────────── arquivos ─────────────────────────
+
+function setTransfer(fileId: string, patch: Partial<AppState['transfers'][string]> | null) {
+  setApp((s) => {
+    const transfers = { ...s.transfers };
+    if (!patch) delete transfers[fileId];
+    else transfers[fileId] = { ...(transfers[fileId] ?? { received: 0, size: 0, status: 'downloading' }), ...patch };
+    return { transfers };
+  });
+}
+
+function transferEvents(): TransferEvents {
+  return {
+    progress: (fileId, received, size) => setTransfer(fileId, { received, size, status: 'downloading' }),
+    done: (fileId) => setTransfer(fileId, { status: 'done' }),
+    failed: (fileId, reason) => {
+      setTransfer(fileId, { status: 'error', reason });
+      toast(reason === 'gone' ? 'Esse arquivo não está mais disponível.' : 'A transferência do arquivo caiu. Tente de novo.', 'error');
+    },
+  };
+}
+
+/** Guarda um arquivo para mandar no chat (ele fica no meu computador; quem baixa busca daqui). */
+export function shareFile(file: File): FileAttachment {
+  const meId = getApp().meId;
+  if (!files || !meId) throw new Error('Entre numa órbita para mandar arquivos.');
+  return files.share(file, meId);
+}
+
+export function downloadFile(attachment: FileAttachment) {
+  const s = getApp();
+  if (!files) return;
+  const mine = files.local(attachment.fileId);
+  if (mine) {
+    saveBlob(mine, attachment.name);
+    return;
+  }
+  const owner = s.room?.members.find((m) => m.id === attachment.ownerId && !m.reconnecting);
+  if (!owner) {
+    setTransfer(attachment.fileId, { status: 'error', reason: 'gone' });
+    return;
+  }
+  setTransfer(attachment.fileId, { received: 0, size: attachment.size, status: 'downloading', reason: undefined });
+  files.download(attachment, owner.peerId);
+}
+
+export function cancelDownload(fileId: string) {
+  files?.cancel(fileId);
+  setTransfer(fileId, null);
+}
+
+/** Tenho esse arquivo aqui (fui eu que mandei, nesta sessão)? */
+export const hasLocalFile = (fileId: string) => !!files?.local(fileId);
 
 export const editMessage = (id: string, text: string) => session?.send({ t: 'chat:edit', id, text });
 export const deleteMessage = (id: string) => session?.send({ t: 'chat:delete', id });

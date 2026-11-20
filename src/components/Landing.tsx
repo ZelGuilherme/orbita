@@ -184,7 +184,7 @@ export function Landing() {
             <div className="avatar-edit">
               <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} planet={profile.planet} size={68} />
               <AvatarButtons />
-              <button type="button" className="link-btn" onClick={() => setApp({ modal: { kind: 'settings', tab: 'perfil' } })}>
+              <button type="button" className="link-btn" onClick={() => setApp({ modal: { kind: 'settings', tab: 'planeta' } })}>
                 <Sparkles size={14} /> Personalizar
               </button>
             </div>

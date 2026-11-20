@@ -39,7 +39,7 @@ function setup() {
   renderer.toneMappingExposure = 1.1;
   renderer.setClearColor(0x000000, 0);
   scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight('#ffffff', 0.55));
+  scene.add(new THREE.AmbientLight('#ffffff', 0.8));
   const key = new THREE.DirectionalLight('#fff4e0', 2.4);
   key.position.set(-3, 2.2, 4);
   scene.add(key);

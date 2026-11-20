@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { DEFAULT_PLANET, type Ornament, type PlanetStyle } from '../lib/planet';
+import { DEFAULT_PLANET, photoMixOf, type Ornament, type PlanetStyle } from '../lib/planet';
 import { textureSeed } from '../lib/noise';
 import { initials, planetBackground } from '../lib/util';
 import { hasWebGL, THUMB_FRAME } from '../lib/webgl';
@@ -113,7 +113,7 @@ export function Planet({ name, color, size = 40, host, speaking, live, text, cla
   // em 3D: uma imagem do planeta (sem texto no lugar da inicial e sem câmera ao vivo)
   const need = Math.ceil(size * THUMB_FRAME * Math.min(2, window.devicePixelRatio || 1));
   const thumb = usePlanetThumb(
-    !text && !hasVideo && hasWebGL() ? { color, look: look ?? DEFAULT_PLANET, seed: textureSeed(seedId), photo, px: THUMB_SIZES.find((s) => s >= need) ?? 512 } : null,
+    !text?.trim() && !hasVideo && hasWebGL() ? { color, look: look ?? DEFAULT_PLANET, seed: textureSeed(seedId), photo, px: THUMB_SIZES.find((s) => s >= need) ?? 512 } : null,
   );
   if (thumb) {
     return (
@@ -158,7 +158,7 @@ export function Planet({ name, color, size = 40, host, speaking, live, text, cla
             {photo ? <img className="planet__photo" src={photo} alt="" draggable={false} /> : <span className="planet__initial">{text ?? initials(name)}</span>}
             {/* a textura fica por cima da foto, e gira devagar */}
             {look && look.texture !== 'none' && (
-              <span className={cx('planet__texture', photo && 'is-over-photo')}>
+              <span className={cx('planet__texture', photo && 'is-over-photo')} style={photo ? { opacity: 1 - photoMixOf(look) } : undefined}>
                 <span className={`planet__tex tex-${look.texture}`} />
               </span>
             )}

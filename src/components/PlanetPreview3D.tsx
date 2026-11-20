@@ -22,7 +22,7 @@ export default function PlanetPreview3D({ color, look, photo, seedId, size = 190
     renderer.domElement.className = 'planet-preview3d__canvas';
     el.append(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight('#ffffff', 0.5));
+    scene.add(new THREE.AmbientLight('#ffffff', 0.8));
     const key = new THREE.DirectionalLight('#fff4e0', 2.4);
     key.position.set(-3, 2.2, 4);
     scene.add(key);
@@ -30,7 +30,7 @@ export default function PlanetPreview3D({ color, look, photo, seedId, size = 190
     rim.position.set(4, -1, -3);
     scene.add(rim);
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-    camera.position.set(0, 1.6, 8.4);
+    camera.position.set(0, 1.4, 7.4);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
     controls.enableZoom = false;

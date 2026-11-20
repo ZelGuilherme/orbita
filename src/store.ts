@@ -6,7 +6,7 @@ import type { EndReason } from './lib/session';
 import { loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
 
 export type FxTool = 'laser' | 'pencil' | 'eraser';
-export type SettingsTab = 'perfil' | 'voz' | 'live' | 'atalhos' | 'rede' | 'sobre';
+export type SettingsTab = 'perfil' | 'planeta' | 'voz' | 'live' | 'atalhos' | 'rede' | 'sobre';
 
 export type Modal =
   | { kind: 'settings'; tab?: SettingsTab }

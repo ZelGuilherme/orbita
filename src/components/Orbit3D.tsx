@@ -107,6 +107,7 @@ export default function Orbit3D({
     if (!on || !host.current) return;
     const s = new OrbitScene(host.current, {
       compact,
+      skySeed: textureSeed(room.code),
       still: false,
       frozen: reduce,
       onPick: (id) => {
@@ -131,7 +132,7 @@ export default function Orbit3D({
       s.dispose();
       scene.current = null;
     };
-  }, [on, compact, reduce]);
+  }, [on, compact, reduce, room.code]);
 
   useEffect(() => {
     scene.current?.setMembers(sceneMembers);
@@ -147,6 +148,7 @@ export default function Orbit3D({
     let labels: LabelPos[] = [];
     const s = new OrbitScene(host.current, {
       compact,
+      skySeed: textureSeed(room.code),
       still: true,
       frozen: true,
       onPick: () => {},
@@ -166,7 +168,7 @@ export default function Orbit3D({
       s.dispose();
     };
     // sceneMembers muda com quem fala; a imagem só precisa do stillKey
-  }, [on, stillKey, compact]);
+  }, [on, stillKey, compact, room.code]);
 
   useLayoutEffect(() => {
     if (still) placeLabels(still.labels);

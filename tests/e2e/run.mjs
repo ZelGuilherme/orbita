@@ -218,8 +218,15 @@ async function chamadaCompleta(opened) {
 
   // planeta personalizado (anéis e luas) aparece para os outros; o host tem coroa
   await b.page.getByRole('button', { name: 'Configurações' }).last().click();
-  await b.page.locator('.planet-editor .field', { hasText: 'Anéis' }).getByRole('button', { name: '2' }).click();
-  await b.page.locator('.planet-editor .field', { hasText: 'Luas' }).getByRole('button', { name: '3' }).click();
+  await b.page.locator('.settings__nav button', { hasText: 'Planeta' }).click();
+  // superfície: lava com cores escolhidas e a foto menos visível
+  await b.page.locator('.texture-tile', { hasText: 'Lava' }).click();
+  await b.page.locator('input[aria-label="Cor: Lava"]').fill('#22d3ee');
+  await b.page.getByLabel('Visibilidade da foto').fill('30');
+  await b.page.locator('.studio__tab', { hasText: 'Anéis' }).click();
+  await b.page.getByRole('radio', { name: '2', exact: true }).click();
+  await b.page.locator('.studio__tab', { hasText: 'Luas' }).click();
+  await b.page.getByRole('radio', { name: '3', exact: true }).click();
   await b.page.locator('.settings__close').click();
   await waitFor(
     a.page,
@@ -228,14 +235,15 @@ async function chamadaCompleta(opened) {
       const row = [...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Bruno'));
       // no 3D a lista mostra uma imagem do planeta; no 2D, os anéis e luas em CSS
       const drawn = row && (row.querySelector('img.planet__img') || (row.querySelectorAll('.planet__ring').length === 4 && row.querySelectorAll('.planet__moon').length === 3));
-      return bruno?.planet?.rings === 2 && bruno.planet.moons === 3 && !!drawn;
+      const p = bruno?.planet;
+      return p?.rings === 2 && p.moons === 3 && p.texture === 'lava' && p.texColors?.lava === '#22d3ee' && p.photoMix === 0.3 && !!drawn;
     },
     null,
     10_000,
   );
   const crown = await b.page.evaluate(() => !![...document.querySelectorAll('.people .person')].find((el) => el.textContent.includes('Ana'))?.querySelector('.planet__crown'));
   if (!crown) throw new Error('o host (Ana) está sem a coroa');
-  log('  planeta personalizado e coroa do host ok');
+  log('  planeta personalizado (lava com cor escolhida, foto a 30%, anéis e luas) e coroa do host ok');
 
   for (const u of [a, b, c]) {
     await waitFor(u.page, () => Object.keys(window.__orbita.getApp().voiceStreams).length === 2, null, 45_000);

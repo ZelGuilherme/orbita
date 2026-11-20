@@ -7,9 +7,7 @@ import { textureSeed } from '../lib/noise';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor } from '../lib/util';
 import { useApp } from '../store';
-import { registerPlanetPicker } from '../lib/flings';
 import { OrbitScene, type LabelPos, type SceneMember } from '../three/OrbitScene';
-import { FlingLayer, type PlanetCenter } from './Flings';
 import { OrbitModeSwitch } from './OrbitViews';
 import { cx, useReducedMotion } from './ui';
 
@@ -48,8 +46,6 @@ export default function Orbit3D({
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<OrbitScene | null>(null);
   const labelEls = useRef(new Map<string, HTMLElement>());
-  /** Centro de cada planeta na tela (para as reações que voam e para soltar o emoji arrastado). */
-  const centers = useRef(new Map<string, PlanetCenter>());
   const [hint, setHint] = useState(() => {
     try {
       return !localStorage.getItem(HINT_KEY);
@@ -94,8 +90,6 @@ export default function Orbit3D({
 
   const placeLabels = (labels: LabelPos[]) => {
     for (const l of labels) {
-      // a etiqueta fica logo abaixo do planeta: o centro está meio planeta acima
-      centers.current.set(l.id, { x: l.x, y: l.y - l.size * 0.56, size: l.size });
       const el = labelEls.current.get(l.id);
       if (!el) continue;
       el.style.transform = `translate(${l.x.toFixed(1)}px, ${l.y.toFixed(1)}px) translateX(-50%)`;
@@ -138,27 +132,6 @@ export default function Orbit3D({
   useEffect(() => {
     scene.current?.setMembers(sceneMembers);
   }, [sceneMembers]);
-
-  // soltar um emoji arrastado em cima de um planeta
-  useEffect(
-    () =>
-      registerPlanetPicker((clientX, clientY) => {
-        const box = host.current?.getBoundingClientRect();
-        if (!box || clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom) return null;
-        let best: string | null = null;
-        let bestDist = Infinity;
-        for (const [id, c] of centers.current) {
-          if (id === '__sala__') continue;
-          const d = Math.hypot(clientX - box.left - c.x, clientY - box.top - c.y);
-          if (d < Math.max(30, c.size * 0.75) && d < bestDist) {
-            best = id;
-            bestDist = d;
-          }
-        }
-        return best;
-      }),
-    [],
-  );
 
   const labelFor = (m: SceneMember) => {
     const member = byId.get(m.id);
@@ -203,7 +176,6 @@ export default function Orbit3D({
   return (
     <div className={cx('orbit3d', compact && 'orbit3d--compact')} ref={host}>
       <div className="orbit3d__labels">{sceneMembers.map(labelFor)}</div>
-      <FlingLayer locate={(id) => centers.current.get(id) ?? null} />
       <div className="orbit3d__tools">
         <OrbitModeSwitch />
         <button type="button" className="orbit3d__tool" title="Voltar a câmera para o ângulo padrão (ou dois cliques no fundo)" aria-label="Centralizar a câmera" onClick={() => scene.current?.resetCamera()}>

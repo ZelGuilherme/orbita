@@ -59,7 +59,6 @@ import { FxBar, FxLayer } from './LiveFx';
 import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
 import { ClipButton, RecordButton, RecordingNotice } from './Capture';
-import { FlingButton, FlingLayer, useDomPlanets } from './Flings';
 import { OrbitModeSwitch, OrbitRings } from './OrbitViews';
 import { SoundButton } from './SoundPanel';
 import { ZoomStage } from './ZoomStage';
@@ -274,7 +273,6 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
   const ref = useRef<HTMLDivElement>(null);
   const nodes = useRef(new Map<string, HTMLDivElement>());
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const locate = useDomPlanets(ref);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -388,7 +386,6 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
           </span>
         </div>
       ))}
-      <FlingLayer locate={locate} />
       <div className="orbit3d__tools">
         <OrbitModeSwitch />
       </div>
@@ -642,63 +639,74 @@ function CallControls() {
         : 'Silenciar';
   return (
     <div className="call-controls">
-      <button
-        type="button"
-        className={cx('ctrl', muted && 'is-off', ptt && !muted && pttDown && 'is-talking')}
-        data-tip={micTip}
-        aria-label={muted ? 'Ativar microfone' : 'Silenciar'}
-        onClick={toggleMic}
-      >
-        {muted ? <MicOff /> : <Mic />}
-        {ptt && !muted && <span className="ctrl__tag">{pttDown ? 'falando' : 'PTT'}</span>}
-      </button>
-      <button
-        type="button"
-        className={cx('ctrl', deafened && 'is-off')}
-        data-tip={deafened ? 'Ativar áudio' : 'Ensurdecer'}
-        aria-label={deafened ? 'Ativar áudio' : 'Ensurdecer'}
-        onClick={toggleDeafen}
-      >
-        {deafened ? <HeadphoneOff /> : <Headphones />}
-      </button>
-      <button
-        type="button"
-        className={cx('ctrl', cameraOn && 'is-on')}
-        data-tip={cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
-        aria-label={cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
-        onClick={() => void toggleCamera()}
-      >
-        {cameraOn ? <Video /> : <VideoOff />}
-      </button>
-      {live ? (
-        <>
-          <button type="button" className="ctrl is-live" data-tip="Opções da live" aria-label="Opções da live" onClick={() => setApp({ modal: { kind: 'live' } })}>
-            <Settings2 />
-            <span className="ctrl__tag ctrl__tag--live">AO VIVO</span>
+      <div className="ctrl-group" role="group" aria-label="Chamada">
+        <span className="ctrl-group__label">Chamada</span>
+        <div className="ctrl-group__buttons">
+          <button
+            type="button"
+            className={cx('ctrl', muted && 'is-off', ptt && !muted && pttDown && 'is-talking')}
+            data-tip={micTip}
+            aria-label={muted ? 'Ativar microfone' : 'Silenciar'}
+            onClick={toggleMic}
+          >
+            {muted ? <MicOff /> : <Mic />}
+            {ptt && !muted && <span className="ctrl__tag">{pttDown ? 'falando' : 'PTT'}</span>}
           </button>
-          <button type="button" className="ctrl ctrl--stop" data-tip="Encerrar live" aria-label="Encerrar live" onClick={stopLive}>
-            <Square />
+          <button
+            type="button"
+            className={cx('ctrl', deafened && 'is-off')}
+            data-tip={deafened ? 'Ativar áudio' : 'Ensurdecer'}
+            aria-label={deafened ? 'Ativar áudio' : 'Ensurdecer'}
+            onClick={toggleDeafen}
+          >
+            {deafened ? <HeadphoneOff /> : <Headphones />}
           </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className="ctrl"
-          data-tip={!canShare ? 'Seu navegador não compartilha a tela' : 'Iniciar live'}
-          aria-label="Iniciar live"
-          disabled={!canShare}
-          onClick={() => setApp({ modal: { kind: 'live' } })}
-        >
-          <ScreenShare />
-        </button>
-      )}
-      <FlingButton />
-      <SoundButton />
-      <RecordButton />
-      <ClipButton />
-      <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
-        <PhoneOff />
-      </button>
+          <button
+            type="button"
+            className={cx('ctrl', cameraOn && 'is-on')}
+            data-tip={cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
+            aria-label={cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
+            onClick={() => void toggleCamera()}
+          >
+            {cameraOn ? <Video /> : <VideoOff />}
+          </button>
+          {live ? (
+            <>
+              <button type="button" className="ctrl is-live" data-tip="Opções da live" aria-label="Opções da live" onClick={() => setApp({ modal: { kind: 'live' } })}>
+                <Settings2 />
+                <span className="ctrl__tag ctrl__tag--live">AO VIVO</span>
+              </button>
+              <button type="button" className="ctrl ctrl--stop" data-tip="Encerrar live" aria-label="Encerrar live" onClick={stopLive}>
+                <Square />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="ctrl"
+              data-tip={!canShare ? 'Seu navegador não compartilha a tela' : 'Iniciar live'}
+              aria-label="Iniciar live"
+              disabled={!canShare}
+              onClick={() => setApp({ modal: { kind: 'live' } })}
+            >
+              <ScreenShare />
+            </button>
+          )}
+          <button type="button" className="ctrl ctrl--leave" data-tip="Sair da chamada" aria-label="Sair da chamada" onClick={() => leaveCall()}>
+            <PhoneOff />
+          </button>
+        </div>
+      </div>
+      <div className="ctrl-sep" aria-hidden="true" />
+      {/* extras: sons e efeitos de voz, gravação e clipe */}
+      <div className="ctrl-group ctrl-group--extras" role="group" aria-label="Extras">
+        <span className="ctrl-group__label">Extras</span>
+        <div className="ctrl-group__buttons">
+          <SoundButton />
+          <RecordButton />
+          <ClipButton />
+        </div>
+      </div>
     </div>
   );
 }

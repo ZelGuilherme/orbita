@@ -961,75 +961,6 @@
   }
 }
 
-/* ───────── reações que voam ───────── */
-
-.fling-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.fling {
-  position: absolute;
-  left: 0;
-  top: 0;
-  line-height: 1;
-  will-change: transform, opacity;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
-  user-select: none;
-}
-
-.fling--big {
-  filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.75)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
-}
-
-.fling-panel {
-  width: min(380px, calc(100vw - 24px));
-}
-
-.fling-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 2px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.fling-pick {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  font-size: 22px;
-  touch-action: none;
-  cursor: grab;
-}
-
-.fling-pick:hover:not(:disabled) {
-  background: var(--bg-4);
-}
-
-.fling-pick:disabled {
-  opacity: 0.4;
-  cursor: progress;
-}
-
-.fling-ghost {
-  position: fixed;
-  z-index: 200;
-  left: 0;
-  top: 0;
-  font-size: 34px;
-  pointer-events: none;
-  transition: filter 0.15s;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
-}
-
-.fling-ghost.is-target {
-  filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.95));
-}
 
 /* ───────── modos da órbita (3D, 2D, linha) ───────── */
 
@@ -1145,4 +1076,69 @@
 .orbit-modes .orbit3d__tool:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ───────── barra da chamada: dois grupos (chamada e extras) ───────── */
+
+.call-controls {
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.ctrl-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.ctrl-group__label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ctrl-group__buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.ctrl-group--extras .ctrl-group__buttons {
+  padding: 4px;
+  margin: -4px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.ctrl-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 18px 2px 4px;
+  background: var(--line-2);
+}
+
+@media (max-width: 560px) {
+  .call-controls {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ctrl-sep {
+    display: none;
+  }
+
+  .ctrl-group {
+    flex-direction: row;
+  }
+
+  .ctrl-group__label {
+    display: none;
+  }
+
+  .ctrl-group__buttons {
+    gap: 6px;
+  }
 }

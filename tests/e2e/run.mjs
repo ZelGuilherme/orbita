@@ -351,32 +351,9 @@ async function chamadaCompleta(opened) {
   if (worst < 0) throw new Error(`um planeta entrou no outro (folga mínima ${worst.toFixed(2)})`);
   log('  planetas se desviam: em 8 s de encontros de frente, a menor folga foi', worst.toFixed(2));
 
-  // reações: clique estoura em volta de quem mandou; arrastar até um planeta voa até essa pessoa
-  await a.page.getByRole('button', { name: 'Reações' }).click();
-  await a.page.getByRole('button', { name: 'Reagir com 🔥' }).click();
-  await waitFor(b.page, () => [...document.querySelectorAll('.fling')].some((el) => el.textContent === '🔥'), null, 10_000);
-  await a.page.waitForTimeout(1_100);
-  const brunoAt = await a.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
-  const orbitBox = await a.page.locator('.call .orbit3d').first().boundingBox();
-  const pick = await a.page.getByRole('button', { name: 'Reagir com 😂' }).boundingBox();
-  await a.page.mouse.move(pick.x + pick.width / 2, pick.y + pick.height / 2);
-  await a.page.mouse.down();
-  for (let i = 1; i <= 12; i++) {
-    const tx = orbitBox.x + brunoAt.x;
-    const ty = orbitBox.y + brunoAt.y;
-    await a.page.mouse.move(pick.x + ((tx - pick.x) * i) / 12, pick.y + ((ty - pick.y) * i) / 12);
-  }
-  // o Bruno pode ter andado na órbita: mira onde ele está agora
-  const nowAt = await a.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
-  await a.page.mouse.move(orbitBox.x + nowAt.x, orbitBox.y + nowAt.y);
-  await a.page.mouse.up();
-  await waitFor(c.page, () => [...document.querySelectorAll('.fling--big')].some((el) => el.textContent === '😂'), null, 10_000);
-  await a.page.mouse.click(5, 5);
-  log('  reações ok: estourou em volta de quem mandou e voou até o planeta do Bruno');
-
   // câmera: centralizar e desligar/ligar o 3D (imagem parada)
   await a.page.getByRole('button', { name: 'Centralizar a câmera' }).first().click();
-  // modos: 2D (órbita plana), anéis (host no meio) e de volta ao 3D; as reações funcionam em todos
+  // modos: 2D (órbita plana), anéis (host no meio) e de volta ao 3D
   await a.page.getByRole('radio', { name: /2D/ }).first().click();
   await waitFor(a.page, () => !!document.querySelector('.call .orbit') && !document.querySelector('.orbit3d__canvas'), null, 10_000);
   await a.page.getByRole('radio', { name: /Anéis/ }).first().click();
@@ -393,14 +370,9 @@ async function chamadaCompleta(opened) {
     const h = host.querySelector('.planet').getBoundingClientRect();
     return inside && Math.abs(h.left + h.width / 2 - (box.left + box.width / 2)) < 4;
   }, null, 10_000);
-  await a.page.waitForTimeout(1_100);
-  await a.page.getByRole('button', { name: 'Reações' }).click();
-  await a.page.getByRole('button', { name: 'Reagir com 🎉' }).click();
-  await waitFor(a.page, () => [...document.querySelectorAll('.orbit-rings .fling')].some((el) => el.textContent === '🎉'), null, 5_000);
-  await a.page.mouse.click(5, 5);
   await a.page.getByRole('radio', { name: /3D/ }).first().click();
   await waitFor(a.page, () => !!document.querySelector('.orbit3d__canvas'), null, 20_000);
-  log('  modos ok: 2D, anéis com o host no meio (com reação) e de volta ao 3D');
+  log('  modos ok: 2D, anéis com o host no meio e de volta ao 3D');
 
   // barras de qualidade da conexão, com ping e perda no título
   await waitFor(a.page, () => document.querySelectorAll('.people .signal').length >= 2, null, 15_000);

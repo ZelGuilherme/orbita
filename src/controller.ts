@@ -1,6 +1,5 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL, SOUND_COOLDOWN_MS, type SoundId } from './lib/config';
 import { canDownloadSize, FileShare, saveBlob, type TransferEvents } from './lib/files';
-import { emitFling, FLING_COOLDOWN_MS, validFlingEmoji } from './lib/flings';
 import { forgetFixedRoom, getFixedRoom, listFixedRooms, saveFixedRoom } from './lib/fixedRooms';
 import { LobbyClient, type Knock } from './lib/lobby';
 import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
@@ -141,9 +140,6 @@ function makeHandlers(meId: string): SessionHandlers {
     speaking: (memberId, on) =>
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
     sound: onSound,
-    fling: (from, emoji, to) => {
-      if (getApp().inCall && validFlingEmoji(emoji)) emitFling({ from, emoji, to });
-    },
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
     fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
@@ -840,15 +836,6 @@ export async function toggleCamera() {
   } catch (err) {
     toast(`Não consegui ligar a câmera: ${errorMessage(err)}.`, 'error');
   }
-}
-
-/** Reação que voa: sem "to", estoura em volta do meu planeta; com "to", voa até o planeta dessa pessoa. */
-export function sendFling(emoji: string, to?: string) {
-  const s = getApp();
-  if (!s.inCall || !session || !validFlingEmoji(emoji)) return;
-  if (Date.now() < s.flingCooldown) return;
-  setApp({ flingCooldown: Date.now() + FLING_COOLDOWN_MS });
-  session.send({ t: 'fling', emoji, to: to && to !== s.meId ? to : undefined });
 }
 
 /** Soundboard: toca um som para todo mundo da chamada (um a cada 2 s). */

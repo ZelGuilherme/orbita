@@ -38,7 +38,6 @@ export interface SessionHandlers {
   typing(memberId: string, channelId: string): void;
   speaking(memberId: string, on: boolean): void;
   sound(from: string, id: string): void;
-  fling(from: string, emoji: string, to?: string): void;
   liveViewer(viewerId: string, viewerPeerId: string, on: boolean): void;
   fx(from: string, streamerId: string, fx: LiveFx): void;
   fxSync(streamerId: string, strokes: FxStroke[]): void;
@@ -422,9 +421,6 @@ export class Session {
         return;
       case 'sound':
         this.h.sound(msg.from, msg.id);
-        return;
-      case 'fling':
-        this.h.fling(msg.from, msg.emoji, msg.to);
         return;
       case 'live:viewer':
         this.h.liveViewer(msg.viewerId, msg.viewerPeerId, msg.on);

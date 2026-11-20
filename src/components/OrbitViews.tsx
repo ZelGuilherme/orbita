@@ -6,7 +6,6 @@ import type { OrbitView } from '../lib/storage';
 import { hashColor, roomInitials } from '../lib/util';
 import { hasWebGL } from '../lib/webgl';
 import { useApp } from '../store';
-import { FlingLayer, useDomPlanets } from './Flings';
 import { Planet } from './Planet';
 import { cx } from './ui';
 
@@ -238,7 +237,6 @@ export function OrbitRings({
   const speaking = useApp((s) => s.speaking);
   const box = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
-  const locate = useDomPlanets(box);
   const [area, setArea] = useState({ w: 0, h: 0 });
   const [zoomed, setZoomed] = useState(false);
   const zoom = useRef({ s: 1, x: 0, y: 0 });
@@ -435,7 +433,6 @@ export function OrbitRings({
           {others.map((m, i) => item(m, false, layout.spots[i] ?? null))}
         </div>
       )}
-      <FlingLayer locate={locate} />
       <div className="orbit3d__tools">
         <OrbitModeSwitch />
         <div className="orbit-modes" role="group" aria-label="Zoom">

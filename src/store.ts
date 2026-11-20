@@ -71,8 +71,6 @@ export interface AppState {
   quality: Record<string, LinkQuality>;
   /** Até quando o meu soundboard está esperando (um som a cada 2 s). */
   soundCooldown: number;
-  /** Até quando as minhas reações estão esperando (uma por segundo). */
-  flingCooldown: number;
   /** Fotos de perfil de quem está na sala. */
   avatars: Record<string, string>;
   /** Mensagem que estou respondendo (id). */
@@ -157,7 +155,6 @@ const roomDefaults = () => ({
   speaking: {},
   quality: {},
   soundCooldown: 0,
-  flingCooldown: 0,
   avatars: {},
   replyTo: null,
   transfers: {},

@@ -17,7 +17,6 @@ import {
   SOUND_COOLDOWN_MS,
   SOUND_IDS,
 } from './config';
-import { FLING_COOLDOWN_MS, validFlingEmoji } from './flings';
 import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
 import { sanitizeOrbit } from './orbitPath';
@@ -180,7 +179,6 @@ export class Hub {
   /** Último som do soundboard de cada um (limite de um a cada 2 s). */
   private soundAt = new Map<string, number>();
   private clipAt = new Map<string, number>();
-  private flingAt = new Map<string, number>();
   private statePending = false;
   private stopped = false;
 
@@ -318,7 +316,6 @@ export class Hub {
     this.fxLimits.delete(id);
     this.soundAt.delete(id);
     this.clipAt.delete(id);
-    this.flingAt.delete(id);
     this.drawings.delete(id);
     this.avatars.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
@@ -374,18 +371,6 @@ export class Hub {
       case 'speaking':
         this.broadcast({ t: 'speaking', memberId: me.id, on: !!msg.on }, me.id);
         return;
-      case 'fling': {
-        const now = Date.now();
-        if (!me.voiceChannelId || !validFlingEmoji(msg.emoji)) return;
-        if (now - (this.flingAt.get(me.id) ?? 0) < FLING_COOLDOWN_MS - 150) return;
-        this.flingAt.set(me.id, now);
-        const target = typeof msg.to === 'string' ? this.member(msg.to) : undefined;
-        const to = target && target.id !== me.id && target.voiceChannelId === me.voiceChannelId ? target.id : undefined;
-        for (const m of this.state.members) {
-          if (m.voiceChannelId === me.voiceChannelId) this.byMember.get(m.id)?.wire.send({ t: 'fling', from: me.id, emoji: msg.emoji, to } satisfies HubMsg);
-        }
-        return;
-      }
       case 'clip': {
         const now = Date.now();
         if (!me.voiceChannelId || now - (this.clipAt.get(me.id) ?? 0) < 10_000) return;

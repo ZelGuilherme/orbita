@@ -27,7 +27,7 @@ export const RECONNECT_GRACE_MS = 25_000;
 export const MIGRATION_GIVE_UP_MS = 120_000;
 
 /** Sons do soundboard (gerados no navegador de cada um). */
-export const SOUND_IDS = ['horn', 'rimshot', 'bell', 'clap', 'alarm', 'sad', 'boing', 'tada'] as const;
+export const SOUND_IDS = ['horn', 'rimshot', 'bell', 'clap', 'alarm', 'sad', 'boing', 'tada', 'drumroll', 'laser', 'coin', 'error', 'win', 'cricket', 'gong', 'boom'] as const;
 export type SoundId = (typeof SOUND_IDS)[number];
 /** Um som a cada tanto, por pessoa. */
 export const SOUND_COOLDOWN_MS = 2_000;

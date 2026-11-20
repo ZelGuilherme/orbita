@@ -200,8 +200,6 @@ export type ClientMsg =
   | { t: 'sound'; id: string }
   /** Salvei um clipe: o host avisa no chat. */
   | { t: 'clip' }
-  /** Reação que voa na órbita (sem "to": estoura em volta de mim). */
-  | { t: 'fling'; emoji: string; to?: string }
   | { t: 'presence'; presence: Partial<Presence> }
   | { t: 'profile'; name: string; color: string; avatar?: string | null; planet?: PlanetStyle; orbit?: OrbitStyle | null }
   | { t: 'live:watch'; streamerId: string; on: boolean }
@@ -219,7 +217,6 @@ export type HubMsg =
   | { t: 'typing'; memberId: string; channelId: string }
   | { t: 'speaking'; memberId: string; on: boolean }
   | { t: 'sound'; from: string; id: string }
-  | { t: 'fling'; from: string; emoji: string; to?: string }
   | { t: 'live:viewer'; viewerId: string; viewerPeerId: string; on: boolean }
   | { t: 'fx'; from: string; streamerId: string; fx: LiveFx }
   | { t: 'fx:sync'; streamerId: string; strokes: FxStroke[] }

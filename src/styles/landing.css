@@ -362,3 +362,47 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* órbita fixa */
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.check-row input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  accent-color: var(--accent);
+}
+
+.check-row b {
+  color: var(--text);
+}
+
+.lobby__head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fixed-rooms__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: #c4b5fd;
+}

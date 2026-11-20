@@ -58,7 +58,10 @@ import { FxBar, FxLayer } from './LiveFx';
 import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
 import { ClipButton, RecordButton, RecordingNotice } from './Capture';
+import { FlingButton, FlingLayer, useDomPlanets } from './Flings';
+import { OrbitLine, OrbitModeSwitch } from './OrbitViews';
 import { SoundButton } from './SoundPanel';
+import { ZoomStage } from './ZoomStage';
 import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
 const EMPTY: Member[] = [];
@@ -66,9 +69,11 @@ const EMPTY: Member[] = [];
 /** A órbita em 3D só é baixada (three.js) quando aparece. */
 const Orbit3D = lazy(() => import('./Orbit3D'));
 
-/** A órbita do centro: 3D quando o navegador desenha em 3D; senão, a versão 2D. */
+/** A órbita do centro: 3D, 2D ou numa linha (escolha no canto; sem 3D no navegador, fica o 2D). */
 function OrbitView(props: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void; compact?: boolean }) {
-  if (!hasWebGL()) return <OrbitStage {...props} />;
+  const mode = useApp((s) => s.orbitView);
+  if (mode === 'line') return <OrbitLine {...props} />;
+  if (mode === '2d' || !hasWebGL()) return <OrbitStage {...props} />;
   return (
     <Suspense fallback={<OrbitStage {...props} />}>
       <Orbit3D {...props} />
@@ -261,6 +266,7 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
   const ref = useRef<HTMLDivElement>(null);
   const nodes = useRef(new Map<string, HTMLDivElement>());
   const [box, setBox] = useState({ w: 0, h: 0 });
+  const locate = useDomPlanets(ref);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -318,6 +324,7 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
           <button
             type="button"
             className="orbit__center-btn"
+            data-planet-id={center.id}
             aria-label={center.live ? `${center.name}: assistir live` : center.cameraOn ? `${center.name}: ver câmera` : center.name}
             onClick={(e) => onPick(center, e.currentTarget)}
           >
@@ -355,6 +362,7 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
             else nodes.current.delete(m.id);
           }}
           className={cx('orbit__sat', m.reconnecting && 'is-away')}
+          data-planet-id={m.id}
           style={{ transform: transformOf(place(g, i, n, 0)) }}
           role="button"
           tabIndex={0}
@@ -372,6 +380,10 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
           </span>
         </div>
       ))}
+      <FlingLayer locate={locate} />
+      <div className="orbit3d__tools">
+        <OrbitModeSwitch />
+      </div>
     </div>
   );
 }
@@ -416,6 +428,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const ownAspect = ownSettings?.width && ownSettings.height ? ownSettings.width / ownSettings.height : 16 / 9;
   const live = spec.kind === 'live' ? m.live : null;
   const effects = !!live && (live.effects || isMe);
+  const tileTool = !!big || focus === spec.id ? tool : null;
 
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
@@ -447,6 +460,12 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
             Mostrar prévia mesmo assim
           </button>
         </div>
+      ) : showVideo && stream && live ? (
+        // live: dá para aproximar e mover (só na minha tela); os desenhos acompanham o zoom
+        <ZoomStage toolActive={effects && !!tileTool}>
+          <VideoEl stream={stream} contain videoRef={videoRef} />
+          {effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={tileTool} />}
+        </ZoomStage>
       ) : showVideo && stream ? (
         <VideoEl stream={stream} mirror={spec.kind === 'cam' && isMe} contain={spec.kind === 'live'} videoRef={spec.kind === 'live' ? videoRef : undefined} />
       ) : spec.kind === 'cam' ? (
@@ -476,9 +495,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
         </div>
       )}
 
-      {live && showVideo && effects && (
-        <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={!!big || focus === spec.id ? tool : null} aspect={hideOwn ? ownAspect : undefined} />
-      )}
+      {live && hideOwn && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={tileTool} aspect={ownAspect} />}
 
       <div className="tile__label">
         {m.id === hostId && <Crown size={13} className="gold" />}
@@ -667,6 +684,7 @@ function CallControls() {
           <ScreenShare />
         </button>
       )}
+      <FlingButton />
       <SoundButton />
       <RecordButton />
       <ClipButton />

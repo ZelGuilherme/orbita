@@ -308,7 +308,9 @@ export function FxLayer({
     const el = eraserRef.current;
     if (!el) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    el.style.transform = `translate(${e.clientX - rect.left}px, ${e.clientY - rect.top}px) translate(-50%, -50%)`;
+    // com zoom, a tela mostra a área maior: converte para o tamanho de dentro
+    const k = e.currentTarget.offsetWidth / (rect.width || 1);
+    el.style.transform = `translate(${(e.clientX - rect.left) * k}px, ${(e.clientY - rect.top) * k}px) translate(-50%, -50%)`;
     el.style.opacity = '1';
   };
 

@@ -1,5 +1,6 @@
-import { DoorOpen, LoaderCircle, Lock, Users, X } from 'lucide-react';
-import { answerKnock, cancelKnock, knockRoom } from '../controller';
+import { DoorOpen, LoaderCircle, Lock, Pin, RotateCcw, Trash2, Users, X } from 'lucide-react';
+import { answerKnock, cancelKnock, forgetRoom, knockRoom, reopenRoom } from '../controller';
+import { formatDay } from '../lib/util';
 import { useApp } from '../store';
 import { Planet } from './Planet';
 import { cx } from './ui';
@@ -81,5 +82,47 @@ export function KnockRequests() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Tela inicial: as órbitas fixas que este navegador conhece (dá para reabrir pelo mesmo link). */
+export function FixedRoomsList() {
+  const rooms = useApp((s) => s.fixedRooms);
+  const me = useApp((s) => s.profile.id);
+  if (!rooms.length) return null;
+  return (
+    <section className="lobby fixed-rooms" aria-label="Suas órbitas fixas">
+      <header className="lobby__head">
+        <h2>
+          <Pin size={17} /> Suas órbitas fixas
+        </h2>
+        <span className="lobby__status">o mesmo link sempre</span>
+      </header>
+      <ul className="lobby__list">
+        {rooms.map((room) => (
+          <li key={room.code} className="lobby-room">
+            <span className="fixed-rooms__icon" aria-hidden="true">
+              <Pin size={18} />
+            </span>
+            <div className="lobby-room__text">
+              <span className="lobby-room__name">
+                {room.locked && <Lock size={13} aria-label="Trancada" />}
+                {room.name}
+              </span>
+              <span className="lobby-room__meta">
+                {room.ownerId === me ? 'criada por você' : 'você já entrou'} · código {room.code} · {formatDay(room.savedAt)}
+              </span>
+            </div>
+            <button type="button" className="btn btn--sm" onClick={() => void reopenRoom(room.code)}>
+              <RotateCcw size={14} /> Abrir
+            </button>
+            <button type="button" className="icon-btn" aria-label={`Esquecer ${room.name}`} title="Esquecer (tira da lista deste navegador)" onClick={() => forgetRoom(room.code)}>
+              <Trash2 size={15} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="lobby__hint">“Abrir” entra se alguém já estiver lá; se estiver vazia, você reabre a sala (com o histórico) e vira o host. Quem criou recebe a coroa de volta ao chegar.</p>
+    </section>
   );
 }

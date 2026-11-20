@@ -1,5 +1,7 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL, SOUND_COOLDOWN_MS, type SoundId } from './lib/config';
-import { FileShare, saveBlob, type TransferEvents } from './lib/files';
+import { canDownloadSize, FileShare, saveBlob, type TransferEvents } from './lib/files';
+import { emitFling, FLING_COOLDOWN_MS, validFlingEmoji } from './lib/flings';
+import { forgetFixedRoom, getFixedRoom, listFixedRooms, saveFixedRoom } from './lib/fixedRooms';
 import { LobbyClient, type Knock } from './lib/lobby';
 import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
@@ -47,6 +49,7 @@ import {
   saveVolumes,
   SYNCED_KEYS,
   validAvatar,
+  type OrbitView,
   type Profile,
   type Settings,
   savePen,
@@ -138,6 +141,9 @@ function makeHandlers(meId: string): SessionHandlers {
     speaking: (memberId, on) =>
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
     sound: onSound,
+    fling: (from, emoji, to) => {
+      if (getApp().inCall && validFlingEmoji(emoji)) emitFling({ from, emoji, to });
+    },
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
     fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
@@ -158,9 +164,32 @@ function makeHandlers(meId: string): SessionHandlers {
   };
 }
 
-function applyState(state: RoomState, meId: string, first: boolean) {
+/**
+ * O estado da sala chega inteiro (e novo) a cada mudança. Quem não mudou continua sendo o mesmo
+ * objeto de antes: assim a tela só redesenha o que mudou (e não cada planetinha e cada mensagem).
+ */
+function shareUnchanged(state: RoomState, prev: RoomState | null): RoomState {
+  if (!prev) return state;
+  const old = new Map(prev.members.map((m) => [m.id, m]));
+  let same = state.members.length === prev.members.length;
+  const members = state.members.map((m, i) => {
+    const before = old.get(m.id);
+    if (!before) {
+      same = false;
+      return m;
+    }
+    const keep = JSON.stringify(before) === JSON.stringify(m) ? before : { ...m, planet: JSON.stringify(before.planet) === JSON.stringify(m.planet) ? before.planet : m.planet };
+    if (keep !== before || prev.members[i] !== before) same = false;
+    return keep;
+  });
+  const next = { ...state, members: same ? prev.members : members };
+  return JSON.stringify({ ...next, members: 0 }) === JSON.stringify({ ...prev, members: 0 }) && next.members === prev.members ? prev : next;
+}
+
+function applyState(incoming: RoomState, meId: string, first: boolean) {
   const s = getApp();
   const prev = s.room;
+  const state = first ? incoming : shareUnchanged(incoming, prev);
   const mine = state.members.find((m) => m.id === meId);
   const callId = voiceChannelOf(state)?.id ?? null;
   const patch: Partial<AppState> = { room: state, meId, isHost: state.hostId === meId };
@@ -266,6 +295,9 @@ function onEnded(reason: EndReason) {
   const s = getApp();
   const roomName = s.room?.name ?? '';
   const code = s.code ?? '';
+  // órbita fixa: guarda a última cópia antes de limpar (quem foi banido não guarda)
+  if (reason === 'banned' && code) forgetFixed(code);
+  else persistFixed(true);
   stopCapture(true);
   media?.destroy();
   media = null;
@@ -371,7 +403,7 @@ function describeError(err: unknown): string {
   if (err instanceof JoinError) {
     switch (err.code) {
       case 'not-found':
-        return 'Órbita não encontrada. O host pode ter fechado a sala, ou o código está errado.';
+        return 'Órbita não encontrada (ou fechada agora). O host pode ter fechado a sala, ou o código está errado.';
       case 'timeout':
         return 'O host não respondeu a tempo. Tente de novo — conexões P2P às vezes demoram.';
       case 'signaling':
@@ -398,27 +430,49 @@ function describeError(err: unknown): string {
   return errorMessage(err);
 }
 
-async function enterRoom(mode: 'create' | 'join', arg: string) {
+async function enterRoom(mode: 'create' | 'join' | 'reopen', arg: string, fixed = false) {
   if (session || getApp().phase === 'connecting') return;
   const { profile } = getApp();
+  const saved = mode === 'reopen' ? getFixedRoom(arg) : undefined;
+  if (mode === 'reopen' && !saved) return;
+  if (saved?.banned.includes(profile.id)) {
+    setApp({ landingError: 'Você foi banido desta órbita.' });
+    return;
+  }
   resetRoomState();
   setApp({
     phase: 'connecting',
     landingError: null,
-    connectingText: mode === 'create' ? 'Criando sua órbita…' : `Entrando na órbita ${arg}…`,
+    connectingText: mode === 'create' ? 'Criando sua órbita…' : mode === 'reopen' ? `Abrindo a órbita ${saved?.name ?? arg}…` : `Entrando na órbita ${arg}…`,
   });
   const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet, orbit: profile.orbit };
   const handlers = makeHandlers(identity.id);
   try {
-    const created =
-      mode === 'create'
-        ? await Session.create(identity, arg, presence, handlers)
-        : await Session.join(identity, arg, presence, handlers);
+    let created: Session;
+    if (mode === 'create') created = await Session.create(identity, arg, presence, handlers, fixed);
+    else if (saved) created = await Session.reopen(identity, saved, presence, handlers);
+    else {
+      try {
+        created = await Session.join(identity, arg, presence, handlers);
+      } catch (err) {
+        // órbita fixa vazia que eu já conheço: reabro (e viro o host)
+        const known = getFixedRoom(arg);
+        if (!(err instanceof JoinError && err.code === 'not-found' && known && !known.banned.includes(profile.id))) throw err;
+        setApp({ connectingText: `A órbita ${known.name} estava vazia: reabrindo…` });
+        created = await Session.reopen(identity, known, presence, handlers);
+      }
+    }
     session = created;
     media = new MediaEngine(mediaEvents(), () => getApp().settings);
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaMedia = media;
     media.attach(created.peer, created.meId);
-    files = new FileShare(created.peer, (peerId) => !!getApp().room?.members.some((m) => m.peerId === peerId), transferEvents());
+    files = new FileShare(
+      created.peer,
+      (peerId) => !!getApp().room?.members.some((m) => m.peerId === peerId),
+      (ownerId) => getApp().room?.members.find((m) => m.id === ownerId && !m.reconnecting)?.peerId ?? null,
+      transferEvents(),
+    );
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaFiles = files;
     if (created.state) media.update(created.state);
     setApp({ phase: 'room', code: created.code, meId: created.meId, inviteCode: null, unread: 0, mentions: 0 });
     history.replaceState(null, '', `#/sala/${created.code}`);
@@ -431,7 +485,64 @@ async function enterRoom(mode: 'create' | 'join', arg: string) {
   }
 }
 
-export const createRoom = (roomName: string) => enterRoom('create', roomName);
+export const createRoom = (roomName: string, fixed = false) => enterRoom('create', roomName, fixed);
+
+/** Reabre (ou entra, se alguém já abriu) uma órbita fixa guardada. */
+export const reopenRoom = (code: string) => enterRoom('reopen', code);
+
+// ───────────────────────── órbitas fixas ─────────────────────────
+
+let fixedTimer = 0;
+
+/** Guarda a cópia da órbita fixa em que estou (nome, configurações, banidos, histórico e fixadas). */
+function persistFixed(now = false) {
+  const run = () => {
+    clearTimeout(fixedTimer);
+    fixedTimer = 0;
+    const s = getApp();
+    const room = s.room;
+    if (!room?.fixed || !s.code) return;
+    saveFixedRoom({
+      code: room.code,
+      name: room.name,
+      ownerId: room.ownerId ?? '',
+      channels: room.channels,
+      banned: room.banned,
+      locked: room.locked,
+      listed: room.listed !== false,
+      messages: s.messages,
+      savedAt: Date.now(),
+    });
+    setApp({ fixedRooms: listFixedRooms() });
+  };
+  // salva no máximo 4 s depois da primeira mudança (numa sala movimentada o relógio não recomeça)
+  if (now) run();
+  else if (!fixedTimer) fixedTimer = window.setTimeout(run, 4_000);
+}
+
+function forgetFixed(code: string) {
+  forgetFixedRoom(code);
+  setApp({ fixedRooms: listFixedRooms() });
+}
+
+/** Tira uma órbita fixa da lista deste navegador. */
+export const forgetRoom = (code: string) => forgetFixed(code);
+
+let fixedWatching = false;
+function watchFixed() {
+  if (fixedWatching) return;
+  fixedWatching = true;
+  useApp.subscribe((s, prev) => {
+    if (s.room !== prev.room || s.messages !== prev.messages) {
+      // o host desligou "fixa": esta cópia não serve mais
+      if (prev.room?.fixed && s.room && !s.room.fixed && s.room.code === prev.room.code) forgetFixed(s.room.code);
+      else if (s.room?.fixed) persistFixed();
+    }
+  });
+}
+
+/** Host: liga/desliga a órbita fixa (mesmo link sempre). */
+export const setFixed = (fixed: boolean) => admin({ kind: 'fixed', fixed });
 
 export function joinRoom(input: string) {
   const code = parseRoomCode(input);
@@ -498,12 +609,12 @@ export async function shareInvite() {
 /** Grava as preferências da interface (chat, faixa de planetas, 3D). */
 function persistUi() {
   const s = getApp();
-  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, planets3d: s.planets3d });
+  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, orbitView: s.orbitView });
 }
 
-/** Liga ou desliga os planetas em 3D (desligado = imagem parada da cena). */
-export function setPlanets3d(planets3d: boolean) {
-  setApp({ planets3d });
+/** Como a órbita aparece: 3D, 2D (órbita plana) ou todos numa linha (fica salvo). */
+export function setOrbitView(orbitView: OrbitView) {
+  setApp({ orbitView });
   persistUi();
 }
 
@@ -568,11 +679,19 @@ function setTransfer(fileId: string, patch: Partial<AppState['transfers'][string
 
 function transferEvents(): TransferEvents {
   return {
-    progress: (fileId, received, size) => setTransfer(fileId, { received, size, status: 'downloading' }),
+    progress: (fileId, received, size, speed) => setTransfer(fileId, { received, size, speed, status: 'downloading' }),
+    retrying: (fileId) => setTransfer(fileId, { status: 'retrying' }),
     done: (fileId) => setTransfer(fileId, { status: 'done' }),
     failed: (fileId, reason) => {
       setTransfer(fileId, { status: 'error', reason });
-      toast(reason === 'gone' ? 'Esse arquivo não está mais disponível.' : 'A transferência do arquivo caiu. Tente de novo.', 'error');
+      toast(
+        reason === 'gone'
+          ? 'Esse arquivo não está mais disponível.'
+          : reason === 'disk'
+            ? 'Não consegui gravar o arquivo no disco (sem espaço ou sem permissão).'
+            : 'A transferência do arquivo caiu e não voltou. Tente de novo.',
+        'error',
+      );
     },
   };
 }
@@ -584,7 +703,8 @@ export function shareFile(file: File): FileAttachment {
   return files.share(file, meId);
 }
 
-export function downloadFile(attachment: FileAttachment) {
+/** Baixar (chamado no clique: arquivos grandes perguntam onde salvar). */
+export async function downloadFile(attachment: FileAttachment) {
   const s = getApp();
   if (!files) return;
   const mine = files.local(attachment.fileId);
@@ -597,8 +717,12 @@ export function downloadFile(attachment: FileAttachment) {
     setTransfer(attachment.fileId, { status: 'error', reason: 'gone' });
     return;
   }
-  setTransfer(attachment.fileId, { received: 0, size: attachment.size, status: 'downloading', reason: undefined });
-  files.download(attachment, owner.peerId);
+  if (!canDownloadSize(attachment.size)) {
+    toast('Arquivo grande demais para este navegador: abra o Órbita no Chrome, Edge ou Brave para baixar.', 'error', 6_000);
+    return;
+  }
+  const started = await files.download(attachment);
+  if (started) setTransfer(attachment.fileId, { received: 0, size: attachment.size, status: 'downloading', reason: undefined, speed: 0 });
 }
 
 export function cancelDownload(fileId: string) {
@@ -704,6 +828,15 @@ export async function toggleCamera() {
   } catch (err) {
     toast(`Não consegui ligar a câmera: ${errorMessage(err)}.`, 'error');
   }
+}
+
+/** Reação que voa: sem "to", estoura em volta do meu planeta; com "to", voa até o planeta dessa pessoa. */
+export function sendFling(emoji: string, to?: string) {
+  const s = getApp();
+  if (!s.inCall || !session || !validFlingEmoji(emoji)) return;
+  if (Date.now() < s.flingCooldown) return;
+  setApp({ flingCooldown: Date.now() + FLING_COOLDOWN_MS });
+  session.send({ t: 'fling', emoji, to: to && to !== s.meId ? to : undefined });
 }
 
 /** Soundboard: toca um som para todo mundo da chamada (um a cada 2 s). */
@@ -1215,18 +1348,44 @@ export const setListed = (listed: boolean) => admin({ kind: 'listed', listed });
 
 // ───────────────────────── lista de órbitas (saguão) ─────────────────────────
 
+let lobbyWatching = false;
+
+/**
+ * A conexão com a lista de órbitas só fica aberta na tela inicial, para o host (que anuncia a
+ * sala e recebe pedidos) e para quem está segurando o ponto de encontro. Quem está numa sala
+ * como membro não precisa dela: menos uma conexão com o servidor de sinalização por pessoa.
+ */
+function lobbyWanted(): boolean {
+  const s = getApp();
+  return s.phase !== 'room' || s.isHost || !!lobby?.isServer;
+}
+
+function syncLobby() {
+  const want = lobbyWanted();
+  if (want && !lobby) {
+    lobby = new LobbyClient({
+      rooms: (lobbyRooms) => setApp({ lobbyRooms }),
+      online: (lobbyOnline) => setApp({ lobbyOnline }),
+      knock: onKnock,
+      knockGone: (knockId) => setApp((s) => ({ knocks: s.knocks.filter((k) => k.knockId !== knockId) })),
+    });
+    void lobby.start();
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaLobby = lobby;
+  } else if (!want && lobby) {
+    lobby.stop();
+    lobby = null;
+    setApp({ lobbyRooms: [], lobbyOnline: false });
+  }
+  syncAnnounce();
+}
+
 function startLobby() {
-  if (lobby) return;
-  lobby = new LobbyClient({
-    rooms: (lobbyRooms) => setApp({ lobbyRooms }),
-    online: (lobbyOnline) => setApp({ lobbyOnline }),
-    knock: onKnock,
-    knockGone: (knockId) => setApp((s) => ({ knocks: s.knocks.filter((k) => k.knockId !== knockId) })),
-  });
-  void lobby.start();
-  if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaLobby = lobby;
+  if (lobbyWatching) return;
+  lobbyWatching = true;
+  syncLobby();
   useApp.subscribe((s, prev) => {
-    if (s.room !== prev.room || s.isHost !== prev.isHost || s.phase !== prev.phase || s.profile !== prev.profile) syncAnnounce();
+    if (s.phase !== prev.phase || s.isHost !== prev.isHost) syncLobby();
+    else if (s.room !== prev.room || s.profile !== prev.profile) syncAnnounce();
   });
 }
 
@@ -1595,10 +1754,12 @@ export function initController() {
   });
   window.addEventListener('storage', syncFromOtherWindow);
   window.addEventListener('pagehide', () => {
+    persistFixed(true);
     session?.destroyNow();
     lobby?.stop();
   });
   startLobby();
+  watchFixed();
   window.addEventListener('message', onExtensionMessage);
   // a extensão responde se estiver instalada
   window.postMessage({ source: 'orbita-app', action: 'ping' }, location.origin);

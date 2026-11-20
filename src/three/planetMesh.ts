@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Ornament, PlanetStyle } from '../lib/planet';
-import { planetTextures, videoTexture, type PlanetTextures } from './textures';
+import { planetTextures, videoTexture, type PlanetTextures, type Priority } from './textures';
 
 /**
  * Um planeta em 3D: superfície com textura (e foto embrulhada), nuvens, atmosfera (brilho),
@@ -18,6 +18,8 @@ export interface PlanetSpec {
   host?: boolean;
   /** Resolução da textura (largura). */
   detail?: number;
+  /** Na fila de geração: 0 = planeta na órbita (primeiro), 1 = imagem pequena. */
+  priority?: Priority;
 }
 
 const MOON_SCALE = { 1: 0.7, 2: 1, 3: 1.45 } as const;
@@ -315,7 +317,7 @@ export class PlanetObject {
     const spec = this.spec;
     let tex: PlanetTextures;
     try {
-      tex = await planetTextures(spec.look, spec.color, spec.seed, spec.photo, spec.detail);
+      tex = await planetTextures(spec.look, spec.color, spec.seed, spec.photo, spec.detail, spec.priority ?? 0);
     } catch (err) {
       console.warn('[3d] textura', err);
       return;

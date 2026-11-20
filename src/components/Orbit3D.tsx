@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Box, Crown, MicOff, RotateCcw } from 'lucide-react';
-import { setMyOrbit, setPlanets3d } from '../controller';
+import { Crown, MicOff, RotateCcw } from 'lucide-react';
+import { setMyOrbit } from '../controller';
 import { defaultOrbit } from '../lib/orbitPath';
 import { DEFAULT_PLANET } from '../lib/planet';
 import { textureSeed } from '../lib/noise';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor } from '../lib/util';
 import { useApp } from '../store';
+import { registerPlanetPicker } from '../lib/flings';
 import { OrbitScene, type LabelPos, type SceneMember } from '../three/OrbitScene';
+import { FlingLayer, type PlanetCenter } from './Flings';
+import { OrbitModeSwitch } from './OrbitViews';
 import { cx, useReducedMotion } from './ui';
 
 /** Câmera de cada pessoa da chamada (a minha vem direto da câmera; a dos outros, da chamada). */
@@ -24,10 +27,7 @@ function useCameras(members: Member[]): Record<string, MediaStream | null> {
 
 const HINT_KEY = 'orbita.hint3d';
 
-/**
- * A órbita da chamada em 3D (three.js). O botão no canto liga/desliga o 3D: desligado, fica uma
- * imagem parada da cena, refeita quando alguém entra, sai ou muda o planeta.
- */
+/** A órbita da chamada em 3D (three.js). No canto, troca para 2D ou para a linha. */
 export default function Orbit3D({
   members,
   room,
@@ -39,7 +39,6 @@ export default function Orbit3D({
   onPick: (member: Member, anchor: Element) => void;
   compact?: boolean;
 }) {
-  const on = useApp((s) => s.planets3d);
   const meId = useApp((s) => s.meId);
   const myOrbit = useApp((s) => s.profile.orbit);
   const speaking = useApp((s) => s.speaking);
@@ -49,7 +48,8 @@ export default function Orbit3D({
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<OrbitScene | null>(null);
   const labelEls = useRef(new Map<string, HTMLElement>());
-  const [still, setStill] = useState<{ src: string; labels: LabelPos[] } | null>(null);
+  /** Centro de cada planeta na tela (para as reações que voam e para soltar o emoji arrastado). */
+  const centers = useRef(new Map<string, PlanetCenter>());
   const [hint, setHint] = useState(() => {
     try {
       return !localStorage.getItem(HINT_KEY);
@@ -94,6 +94,8 @@ export default function Orbit3D({
 
   const placeLabels = (labels: LabelPos[]) => {
     for (const l of labels) {
+      // a etiqueta fica logo abaixo do planeta: o centro está meio planeta acima
+      centers.current.set(l.id, { x: l.x, y: l.y - l.size * 0.56, size: l.size });
       const el = labelEls.current.get(l.id);
       if (!el) continue;
       el.style.transform = `translate(${l.x.toFixed(1)}px, ${l.y.toFixed(1)}px) translateX(-50%)`;
@@ -102,9 +104,9 @@ export default function Orbit3D({
     }
   };
 
-  // cena ao vivo (3D ligado)
+  // a cena 3D
   useLayoutEffect(() => {
-    if (!on || !host.current) return;
+    if (!host.current) return;
     const s = new OrbitScene(host.current, {
       compact,
       skySeed: textureSeed(room.code),
@@ -127,52 +129,36 @@ export default function Orbit3D({
     });
     scene.current = s;
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>)[compact ? '__orbitaSceneCompact' : '__orbitaScene'] = s;
-    setStill(null);
     return () => {
       s.dispose();
       scene.current = null;
     };
-  }, [on, compact, reduce, room.code]);
+  }, [compact, reduce, room.code]);
 
   useEffect(() => {
     scene.current?.setMembers(sceneMembers);
-  }, [sceneMembers, on]);
+  }, [sceneMembers]);
 
-  // imagem parada (3D desligado): refeita quando muda quem está ou a aparência de alguém
-  const stillKey = JSON.stringify(
-    sceneMembers.map((m) => [m.id, m.color, m.look, m.photo?.length ?? 0, m.orbit && [m.orbit.radius, m.orbit.incl, m.orbit.node], m.live, !!m.video]),
+  // soltar um emoji arrastado em cima de um planeta
+  useEffect(
+    () =>
+      registerPlanetPicker((clientX, clientY) => {
+        const box = host.current?.getBoundingClientRect();
+        if (!box || clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom) return null;
+        let best: string | null = null;
+        let bestDist = Infinity;
+        for (const [id, c] of centers.current) {
+          if (id === '__sala__') continue;
+          const d = Math.hypot(clientX - box.left - c.x, clientY - box.top - c.y);
+          if (d < Math.max(30, c.size * 0.75) && d < bestDist) {
+            best = id;
+            bestDist = d;
+          }
+        }
+        return best;
+      }),
+    [],
   );
-  useEffect(() => {
-    if (on || !host.current) return;
-    let cancelled = false;
-    let labels: LabelPos[] = [];
-    const s = new OrbitScene(host.current, {
-      compact,
-      skySeed: textureSeed(room.code),
-      still: true,
-      frozen: true,
-      onPick: () => {},
-      onOrbit: () => {},
-      onLabels: (l) => (labels = l),
-    });
-    s.canvas.style.visibility = 'hidden';
-    s.setMembers(sceneMembers);
-    void s.renderWhenReady().then(() => {
-      if (cancelled) return;
-      const src = s.snapshot();
-      setStill({ src, labels });
-      s.dispose();
-    });
-    return () => {
-      cancelled = true;
-      s.dispose();
-    };
-    // sceneMembers muda com quem fala; a imagem só precisa do stillKey
-  }, [on, stillKey, compact, room.code]);
-
-  useLayoutEffect(() => {
-    if (still) placeLabels(still.labels);
-  });
 
   const labelFor = (m: SceneMember) => {
     const member = byId.get(m.id);
@@ -215,25 +201,15 @@ export default function Orbit3D({
   };
 
   return (
-    <div className={cx('orbit3d', compact && 'orbit3d--compact', !on && 'is-still')} ref={host}>
-      {!on && still && <img className="orbit3d__still" src={still.src} alt="" draggable={false} />}
+    <div className={cx('orbit3d', compact && 'orbit3d--compact')} ref={host}>
       <div className="orbit3d__labels">{sceneMembers.map(labelFor)}</div>
+      <FlingLayer locate={(id) => centers.current.get(id) ?? null} />
       <div className="orbit3d__tools">
-        <button
-          type="button"
-          className={cx('orbit3d__tool', on && 'is-on')}
-          aria-pressed={on}
-          title={on ? 'Desligar o 3D (fica uma imagem parada, mais leve)' : 'Ligar o 3D'}
-          onClick={() => setPlanets3d(!on)}
-        >
-          <Box size={14} /> 3D {on ? 'ligado' : 'desligado'}
+        <OrbitModeSwitch />
+        <button type="button" className="orbit3d__tool" title="Voltar a câmera para o ângulo padrão (ou dois cliques no fundo)" aria-label="Centralizar a câmera" onClick={() => scene.current?.resetCamera()}>
+          <RotateCcw size={14} />
         </button>
-        {on && (
-          <button type="button" className="orbit3d__tool" title="Voltar a câmera para o ângulo padrão (ou dois cliques no fundo)" aria-label="Centralizar a câmera" onClick={() => scene.current?.resetCamera()}>
-            <RotateCcw size={14} />
-          </button>
-        )}
-        {on && hint && !compact && satellites.some((m) => m.id === meId) && (
+        {hint && !compact && satellites.some((m) => m.id === meId) && (
           <span className="orbit3d__hint">Arraste o fundo para girar · arraste seu planeta e solte com um empurrão para mudar sua órbita</span>
         )}
       </div>

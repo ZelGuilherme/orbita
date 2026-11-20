@@ -17,6 +17,7 @@ import {
   SOUND_COOLDOWN_MS,
   SOUND_IDS,
 } from './config';
+import { FLING_COOLDOWN_MS, validFlingEmoji } from './flings';
 import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
 import { sanitizeOrbit } from './orbitPath';
@@ -71,7 +72,62 @@ const MIME = /^[\w.+-]{1,60}\/[\w.+-]{1,80}$/;
 const MAX_PINS = 25;
 const IMAGE_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
-export function createRoom(code: string, name: string, hostId: string): HubInit {
+/** O que fica guardado de uma órbita fixa (no navegador de quem já entrou). */
+export interface SavedRoom {
+  code: string;
+  name: string;
+  ownerId: string;
+  channels: RoomState['channels'];
+  banned: string[];
+  locked: boolean;
+  listed: boolean;
+  messages: ChatMessage[];
+  savedAt: number;
+}
+
+/** Reabre uma órbita fixa vazia a partir da cópia guardada: quem reabre vira o host. */
+export function restoreRoom(saved: SavedRoom, hostId: string, hostName: string): HubInit {
+  const now = Date.now();
+  const channels =
+    Array.isArray(saved.channels) && saved.channels.some((c) => c?.type === 'text') && saved.channels.some((c) => c?.type === 'voice')
+      ? saved.channels
+          .filter((c) => c && typeof c.id === 'string' && (c.type === 'text' || c.type === 'voice'))
+          .map((c) => ({ id: c.id.slice(0, 16), name: clampText(c.name, 40) || 'chat', type: c.type }))
+      : createRoom(saved.code, saved.name, hostId).state.channels;
+  const chatId = channels.find((c) => c.type === 'text')!.id;
+  const messages = (Array.isArray(saved.messages) ? saved.messages : [])
+    .filter((m) => m && typeof m.id === 'string' && typeof m.text === 'string' && typeof m.ts === 'number' && m.channelId === chatId)
+    .slice(-MAX_MESSAGES_PER_CHANNEL + 1);
+  messages.push({
+    id: randomId(14),
+    channelId: chatId,
+    authorId: '',
+    authorName: APP_NAME,
+    authorColor: '',
+    text: `🔁 **${sanitizeName(hostName)}** reabriu a órbita.`,
+    ts: now,
+    system: true,
+  });
+  return {
+    state: {
+      code: saved.code,
+      name: sanitizeRoomName(saved.name),
+      hostId,
+      createdAt: now,
+      locked: !!saved.locked,
+      listed: saved.listed !== false,
+      fixed: true,
+      ownerId: typeof saved.ownerId === 'string' ? saved.ownerId : baseId(hostId),
+      epoch: 1,
+      banned: Array.isArray(saved.banned) ? saved.banned.filter((b) => typeof b === 'string').slice(0, 500) : [],
+      members: [],
+      channels,
+    },
+    messages,
+  };
+}
+
+export function createRoom(code: string, name: string, hostId: string, fixed = false): HubInit {
   const now = Date.now();
   const roomName = sanitizeRoomName(name);
   // uma sala = um chat de texto + uma chamada de voz
@@ -85,6 +141,8 @@ export function createRoom(code: string, name: string, hostId: string): HubInit 
       createdAt: now,
       locked: false,
       listed: true,
+      fixed,
+      ownerId: baseId(hostId),
       epoch: 1,
       banned: [],
       members: [],
@@ -122,6 +180,7 @@ export class Hub {
   /** Último som do soundboard de cada um (limite de um a cada 2 s). */
   private soundAt = new Map<string, number>();
   private clipAt = new Map<string, number>();
+  private flingAt = new Map<string, number>();
   private statePending = false;
   private stopped = false;
 
@@ -259,6 +318,7 @@ export class Hub {
     this.fxLimits.delete(id);
     this.soundAt.delete(id);
     this.clipAt.delete(id);
+    this.flingAt.delete(id);
     this.drawings.delete(id);
     this.avatars.delete(id);
     if (announce) this.system(`**${member.name}** saiu da órbita.`);
@@ -314,6 +374,18 @@ export class Hub {
       case 'speaking':
         this.broadcast({ t: 'speaking', memberId: me.id, on: !!msg.on }, me.id);
         return;
+      case 'fling': {
+        const now = Date.now();
+        if (!me.voiceChannelId || !validFlingEmoji(msg.emoji)) return;
+        if (now - (this.flingAt.get(me.id) ?? 0) < FLING_COOLDOWN_MS - 150) return;
+        this.flingAt.set(me.id, now);
+        const target = typeof msg.to === 'string' ? this.member(msg.to) : undefined;
+        const to = target && target.id !== me.id && target.voiceChannelId === me.voiceChannelId ? target.id : undefined;
+        for (const m of this.state.members) {
+          if (m.voiceChannelId === me.voiceChannelId) this.byMember.get(m.id)?.wire.send({ t: 'fling', from: me.id, emoji: msg.emoji, to } satisfies HubMsg);
+        }
+        return;
+      }
       case 'clip': {
         const now = Date.now();
         if (!me.voiceChannelId || now - (this.clipAt.get(me.id) ?? 0) < 10_000) return;
@@ -436,6 +508,14 @@ export class Hub {
     if (this.avatars.size) client.wire.send({ t: 'avatars', avatars: Object.fromEntries(this.avatars) } satisfies HubMsg);
     if (!prev && msg.rejoinAt == null) this.system(`**${member.name}** entrou na órbita.`);
     this.pushState();
+    // órbita fixa: quando quem criou chega, a coroa volta para ele
+    if (this.state.fixed && this.state.ownerId === baseId(id) && this.state.hostId !== id) {
+      window.setTimeout(() => {
+        if (this.closing || this.stopped || this.state.hostId === id || !this.byMember.has(id)) return;
+        this.system(`👑 **${member.name}** criou esta órbita e recebeu a coroa de volta.`);
+        this.handoff(id);
+      }, 1_500);
+    }
   }
 
   private nextJoinedAt(rejoinAt?: number): number {
@@ -574,6 +654,16 @@ export class Hub {
         return;
       case 'listed':
         this.state.listed = !!action.listed;
+        this.pushState();
+        return;
+      case 'fixed':
+        this.state.fixed = !!action.fixed;
+        this.state.ownerId ??= baseId(host.id);
+        this.system(
+          this.state.fixed
+            ? '📌 O host tornou esta órbita fixa: o link vale sempre e quem já entrou pode reabrir quando estiver vazia.'
+            : 'A órbita deixou de ser fixa: quando todos saírem, ela some.',
+        );
         this.pushState();
         return;
       case 'rename':

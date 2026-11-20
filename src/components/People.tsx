@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
   ChevronDown,
   Copy,
   Crown,
   Eye,
   EyeOff,
+  Pin,
+  PinOff,
   HeadphoneOff,
   Headphones,
   TriangleAlert,
@@ -19,7 +21,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { copyInvite, openLive, requestLeave, setListed, setLocked, toggleDeafen, toggleMic } from '../controller';
+import { copyInvite, openLive, requestLeave, setFixed, setListed, setLocked, toggleDeafen, toggleMic } from '../controller';
 import { otherBuild } from '../lib/build';
 import type { Member } from '../lib/protocol';
 import { setApp, useApp, voiceChannelOf } from '../store';
@@ -49,6 +51,7 @@ export function People() {
           <OrbitLogo size={26} />
           <span className="people__room-name">
             {room.locked && <Lock size={13} />}
+            {room.fixed && <Pin size={13} aria-label="Órbita fixa" />}
             {room.name}
           </span>
           <ChevronDown size={18} className="chev" />
@@ -89,6 +92,7 @@ function RoomMenu({ onClose }: { onClose: () => void }) {
   const isHost = useApp((s) => s.isHost);
   const locked = useApp((s) => !!s.room?.locked);
   const listed = useApp((s) => s.room?.listed !== false);
+  const fixed = useApp((s) => !!s.room?.fixed);
   const run = (fn: () => void) => () => {
     onClose();
     fn();
@@ -110,6 +114,9 @@ function RoomMenu({ onClose }: { onClose: () => void }) {
             </button>
             <button type="button" role="menuitem" onClick={run(() => setListed(!listed))}>
               {listed ? <EyeOff size={16} /> : <Eye size={16} />} {listed ? 'Esconder da lista de órbitas' : 'Mostrar na lista de órbitas'}
+            </button>
+            <button type="button" role="menuitem" onClick={run(() => setFixed(!fixed))}>
+              {fixed ? <PinOff size={16} /> : <Pin size={16} />} {fixed ? 'Deixar de ser órbita fixa' : 'Tornar órbita fixa (mesmo link sempre)'}
             </button>
           </>
         )}
@@ -141,7 +148,8 @@ function InviteCard() {
   );
 }
 
-function PersonRow({ member, host, me, speaking }: { member: Member; host: boolean; me: boolean; speaking: boolean }) {
+/** Uma linha por pessoa: só redesenha quando algo dessa pessoa muda (não a cada fala de outra). */
+const PersonRow = memo(function PersonRow({ member, host, me, speaking }: { member: Member; host: boolean; me: boolean; speaking: boolean }) {
   const muted = member.serverMuted || !member.micOn || member.deafened;
   return (
     <button type="button" className={cx('person', member.reconnecting && 'is-away')} onClick={(e) => openMemberCard(member.id, e.currentTarget)}>
@@ -198,7 +206,8 @@ function PersonRow({ member, host, me, speaking }: { member: Member; host: boole
       </span>
     </button>
   );
-}
+});
+
 
 function UserPanel() {
   const profile = useApp((s) => s.profile);

@@ -54,6 +54,8 @@ export default function PlanetPreview3D({ color, look, photo, seedId, size = 190
     world.current = state;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
+      // no máximo ~60 quadros por segundo
+      if (now - last < 1000 / 60 - 2) return;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       controls.update();

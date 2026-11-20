@@ -2,7 +2,7 @@ import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { APP_BUILD } from './build';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
-import { Hub, createRoom, hubPeerId } from './hub';
+import { Hub, createRoom, hubPeerId, restoreRoom, type SavedRoom } from './hub';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
 import type { OrbitStyle } from './orbitPath';
 import type { PlanetStyle } from './planet';
@@ -38,6 +38,7 @@ export interface SessionHandlers {
   typing(memberId: string, channelId: string): void;
   speaking(memberId: string, on: boolean): void;
   sound(from: string, id: string): void;
+  fling(from: string, emoji: string, to?: string): void;
   liveViewer(viewerId: string, viewerPeerId: string, on: boolean): void;
   fx(from: string, streamerId: string, fx: LiveFx): void;
   fxSync(streamerId: string, strokes: FxStroke[]): void;
@@ -113,12 +114,12 @@ export class Session {
   }
 
   /** Cria uma sala nova: esta aba vira o host. */
-  static async create(identity: Identity, roomName: string, presence: () => Presence, h: SessionHandlers) {
+  static async create(identity: Identity, roomName: string, presence: () => Presence, h: SessionHandlers, fixed = false) {
     const peer = await openPeer();
     try {
       for (let attempt = 0; ; attempt++) {
         const code = roomCode();
-        const hub = new Hub(createRoom(code, roomName, identity.id));
+        const hub = new Hub(createRoom(code, roomName, identity.id, fixed));
         try {
           await hub.start();
         } catch (err) {
@@ -132,6 +133,42 @@ export class Session {
         return session;
       }
     } catch (err) {
+      peer.destroy();
+      throw err;
+    }
+  }
+
+  /**
+   * Órbita fixa: entra se alguém já estiver lá; se estiver vazia, esta aba reabre a sala a partir
+   * da cópia guardada (e vira o host).
+   */
+  static async reopen(identity: Identity, saved: SavedRoom, presence: () => Presence, h: SessionHandlers) {
+    const peer = await openPeer();
+    const session = new Session(peer, saved.code, identity, presence, h);
+    const join = async (ms: number) => {
+      await session.connectRemote(ms, false);
+      return session;
+    };
+    try {
+      try {
+        return await join(7_000);
+      } catch (err) {
+        if (!(err instanceof JoinError) || (err.code !== 'not-found' && err.code !== 'timeout')) throw err;
+      }
+      const hub = new Hub(restoreRoom(saved, identity.id, identity.name));
+      try {
+        await hub.start();
+      } catch (err) {
+        hub.stop();
+        // outra pessoa reabriu no mesmo instante: entra na dela
+        if (err instanceof PeerOpenError && err.type === 'unavailable-id') return await join(12_000);
+        throw err;
+      }
+      session.hub = hub;
+      await session.connectLocal(false);
+      return session;
+    } catch (err) {
+      session.status = 'ended';
       peer.destroy();
       throw err;
     }
@@ -385,6 +422,9 @@ export class Session {
         return;
       case 'sound':
         this.h.sound(msg.from, msg.id);
+        return;
+      case 'fling':
+        this.h.fling(msg.from, msg.emoji, msg.to);
         return;
       case 'live:viewer':
         this.h.liveViewer(msg.viewerId, msg.viewerPeerId, msg.on);

@@ -63,8 +63,22 @@ interface Entry {
   videoEl: HTMLVideoElement | null;
   /** Posição forçada (enquanto a pessoa arrasta). */
   drag: THREE.Vector3 | null;
+  /** Onde o planeta estaria pela órbita (sem desviar). */
+  nominal: THREE.Vector3;
+  /** Desvio atual para não bater em outro planeta (some aos poucos quando o perigo passa). */
+  avoid: THREE.Vector3;
+  /** Raio do "espaço pessoal" do planeta (o planeta e os anéis). */
+  bubble: number;
 }
 
+/** Quanto antes do encontro o desvio começa (múltiplo da distância mínima) e a folga entre os dois. */
+const AVOID_ZONE = 1.4;
+const AVOID_MARGIN = 0.28;
+/** Rapidez com que o planeta sai da rota e volta para ela (por segundo). */
+const AVOID_RATE = 10;
+
+/** Intervalo mínimo entre quadros (~60 por segundo, com folga para monitores de 60 Hz). */
+const FRAME_MS = 13;
 const HOST_R = 1;
 const SAT_R = 0.42;
 const FOV = 38;
@@ -239,7 +253,9 @@ export class OrbitScene {
         planet.body.userData.memberId = m.id;
         planet.hitArea.userData.memberId = m.id;
         this.scene.add(planet.group);
-        entry = { member: m, lookKey: key, planet, line: null, orbitKey: '', videoEl: null, drag: null };
+        const radius = m.orbit ? SAT_R : HOST_R;
+        const bubble = radius * (m.look.rings === 2 ? 1.7 : m.look.rings === 1 ? 1.45 : 1.06);
+        entry = { member: m, lookKey: key, planet, line: null, orbitKey: '', videoEl: null, drag: null, nominal: new THREE.Vector3(), avoid: new THREE.Vector3(), bubble };
         this.entries.set(m.id, entry);
         if (this.opts.still) void planet.ready.then(() => this.render());
       }
@@ -267,12 +283,32 @@ export class OrbitScene {
     return this.canvas.toDataURL('image/png');
   }
 
+  /** Quem está embaixo deste ponto (px, relativo à cena). Para os testes. */
+  pickAt(x: number, y: number): string | null {
+    const rect = this.canvas.getBoundingClientRect();
+    return this.pick({ clientX: rect.left + x, clientY: rect.top + y } as MouseEvent)?.member.id ?? null;
+  }
+
   /** Onde está o centro de um planeta na tela (px, relativo à cena). */
   screenPosition(id: string): { x: number; y: number } | null {
     const entry = this.entries.get(id);
     if (!entry) return null;
     const v = entry.planet.group.position.clone().project(this.camera);
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
+  }
+
+  /** Menor folga entre dois planetas agora (negativa = um dentro do outro). Para os testes. */
+  minGap(): number {
+    const list = [...this.entries.values()];
+    let gap = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        gap = Math.min(gap, a.planet.group.position.distanceTo(b.planet.group.position) - (a.planet.spec.radius + b.planet.spec.radius));
+      }
+    }
+    return gap;
   }
 
   /** Volta a câmera para o ângulo padrão. */
@@ -611,6 +647,8 @@ export class OrbitScene {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    // no máximo ~60 quadros por segundo: em monitores de 144 Hz não gasta o dobro à toa
+    if (now - this.last < FRAME_MS) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (this.resetAnim) {
@@ -634,12 +672,15 @@ export class OrbitScene {
     const t = this.opts.still || this.opts.frozen ? this.frozenAt : orbitClock();
     const seconds = performance.now() / 1000;
     for (const entry of this.entries.values()) {
-      const g = entry.planet.group;
-      if (entry.drag) g.position.copy(entry.drag);
+      if (entry.drag) entry.nominal.copy(entry.drag);
       else if (entry.member.orbit) {
         orbitPosition(entry.member.orbit, t, this.tmp);
-        g.position.set(this.tmp[0], this.tmp[1], this.tmp[2]);
-      } else g.position.set(0, 0, 0);
+        entry.nominal.set(this.tmp[0], this.tmp[1], this.tmp[2]);
+      } else entry.nominal.set(0, 0, 0);
+    }
+    this.avoidCollisions(dt);
+    for (const entry of this.entries.values()) {
+      entry.planet.group.position.copy(entry.nominal).add(entry.avoid);
       entry.planet.update(dt, seconds, this.opts.still || this.opts.frozen);
     }
     this.fill.position.copy(this.camera.position);
@@ -649,6 +690,48 @@ export class OrbitScene {
     }
     this.renderer.render(this.scene, this.camera);
     this.emitLabels();
+  }
+
+  /**
+   * Nenhum planeta entra no outro: quando dois vão se encontrar, saem um pouco da rota (um por
+   * cima, o outro por baixo) e voltam para ela quando o perigo passa. O host no centro e o
+   * planeta que alguém está arrastando não desviam: os outros desviam deles.
+   */
+  private avoidCollisions(dt: number) {
+    const list = [...this.entries.values()];
+    const targets = list.map(() => new THREE.Vector3());
+    const d = new THREE.Vector3();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        const wa = a.member.orbit && !a.drag ? 1 : 0;
+        const wb = b.member.orbit && !b.drag ? 1 : 0;
+        if (!wa && !wb) continue;
+        const min = a.bubble + b.bubble + AVOID_MARGIN;
+        const zone = min * AVOID_ZONE;
+        d.subVectors(a.nominal, b.nominal);
+        const dist = d.length();
+        if (dist >= zone) continue;
+        if (dist < 1e-4) d.set(1, 0, 0);
+        else d.divideScalar(dist);
+        // quem tem o ID "maior" passa por cima; o outro, por baixo (igual para todo mundo)
+        d.y += a.member.id > b.member.id ? 0.9 : -0.9;
+        d.normalize();
+        // o empurrão cresce suave conforme se aproximam e garante a distância mínima
+        const k = (zone - dist) / (zone - min * 0.5);
+        const push = Math.min(1, k) * (zone - dist) * 1.35;
+        const total = wa + wb;
+        targets[i].addScaledVector(d, (push * wa) / total);
+        targets[j].addScaledVector(d, (-push * wb) / total);
+      }
+    }
+    // sai da rota e volta suavemente (no modo imagem, direto na posição final)
+    const blend = this.opts.still || dt <= 0 ? 1 : 1 - Math.exp(-dt * AVOID_RATE);
+    list.forEach((entry, i) => {
+      if (entry.drag || !entry.member.orbit) entry.avoid.set(0, 0, 0);
+      else entry.avoid.lerp(targets[i], blend);
+    });
   }
 
   private emitLabels() {

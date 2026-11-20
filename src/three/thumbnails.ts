@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { cacheGet, cacheSet } from '../lib/idbCache';
 import type { PlanetStyle } from '../lib/planet';
 import { THUMB_FRAME } from '../lib/webgl';
 import { PlanetObject } from './planetMesh';
@@ -55,7 +56,7 @@ function setup() {
 
 async function render(spec: ThumbSpec): Promise<string> {
   setup();
-  const planet = new PlanetObject({ color: spec.color, look: spec.look, seed: spec.seed, photo: spec.photo, radius: 1, detail: spec.px > 200 ? 512 : 256 });
+  const planet = new PlanetObject({ color: spec.color, look: spec.look, seed: spec.seed, photo: spec.photo, radius: 1, detail: spec.px > 200 ? 512 : 256, priority: 1 });
   try {
     await planet.ready;
     planet.update(0, 0, true);
@@ -75,12 +76,23 @@ export function requestThumb(spec: ThumbSpec): Promise<string> {
   if (hit) return Promise.resolve(hit);
   let job = jobs.get(key);
   if (!job) {
-    job = queue.then(() => render(spec)).then((url) => {
-      cache.set(key, url);
-      if (cache.size > 120) cache.delete(cache.keys().next().value!);
-      jobs.delete(key);
-      return url;
-    });
+    // fila de desenho: cada imagem espera a anterior (um desenhista só)
+    const before = queue;
+    // guardada no navegador de outra vez? (aparece na hora, sem desenhar de novo)
+    job = cacheGet<string>('thumbs', key)
+      .then(async (saved) => {
+        if (saved) return saved;
+        await before;
+        const url = await render(spec);
+        void cacheSet('thumbs', key, url);
+        return url;
+      })
+      .then((url) => {
+        cache.set(key, url);
+        if (cache.size > 120) cache.delete(cache.keys().next().value!);
+        jobs.delete(key);
+        return url;
+      });
     job.catch(() => jobs.delete(key));
     queue = job.catch(() => undefined);
     jobs.set(key, job);

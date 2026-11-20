@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type { LinkQuality, LiveSurface } from './lib/media';
+import { listFixedRooms } from './lib/fixedRooms';
+import type { SavedRoom } from './lib/hub';
 import type { Knock, Listing } from './lib/lobby';
 import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
-import { loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
+import { type OrbitView, loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
 
 export type FxTool = 'laser' | 'pencil' | 'eraser';
 export type SettingsTab = 'perfil' | 'planeta' | 'voz' | 'live' | 'atalhos' | 'rede' | 'sobre';
@@ -20,9 +22,12 @@ export type Modal =
 export interface Transfer {
   received: number;
   size: number;
-  status: 'downloading' | 'done' | 'error';
-  /** gone: quem mandou saiu ou o arquivo não existe mais; lost: a conexão caiu. */
-  reason?: 'gone' | 'lost';
+  /** retrying: a conexão caiu e está voltando (continua de onde parou). */
+  status: 'downloading' | 'retrying' | 'done' | 'error';
+  /** gone: quem mandou saiu ou o arquivo não existe mais; lost: a conexão caiu de vez; disk: não deu para gravar no disco. */
+  reason?: 'gone' | 'lost' | 'disk';
+  /** Bytes por segundo. */
+  speed?: number;
 }
 
 export interface Toast {
@@ -66,6 +71,8 @@ export interface AppState {
   quality: Record<string, LinkQuality>;
   /** Até quando o meu soundboard está esperando (um som a cada 2 s). */
   soundCooldown: number;
+  /** Até quando as minhas reações estão esperando (uma por segundo). */
+  flingCooldown: number;
   /** Fotos de perfil de quem está na sala. */
   avatars: Record<string, string>;
   /** Mensagem que estou respondendo (id). */
@@ -102,8 +109,8 @@ export interface AppState {
   focus: string | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
-  /** Planetas em 3D (desligado = imagem parada). */
-  planets3d: boolean;
+  /** Como a órbita aparece: 3D, 2D ou numa linha. */
+  orbitView: OrbitView;
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
@@ -120,6 +127,8 @@ export interface AppState {
   lobbyOnline: boolean;
   /** Versão da extensão de atalhos, se estiver instalada. */
   extension: string | null;
+  /** Órbitas fixas guardadas neste navegador. */
+  fixedRooms: SavedRoom[];
   /** Meu pedido para entrar numa órbita da lista. */
   knocking: { listingId: string; roomName: string } | null;
   /** (host) Pedidos para entrar na minha órbita. */
@@ -144,6 +153,7 @@ const roomDefaults = () => ({
   speaking: {},
   quality: {},
   soundCooldown: 0,
+  flingCooldown: 0,
   avatars: {},
   replyTo: null,
   transfers: {},
@@ -192,12 +202,13 @@ export const useApp = create<AppState>()(() => ({
   chatOpen: loadUiPrefs().chatOpen,
   chatWidth: loadUiPrefs().chatWidth,
   orbitHidden: loadUiPrefs().orbitHidden,
-  planets3d: loadUiPrefs().planets3d,
+  orbitView: loadUiPrefs().orbitView,
   pen: loadPen(),
   updateReady: false,
   lobbyRooms: [],
   lobbyOnline: false,
   extension: null,
+  fixedRooms: listFixedRooms(),
   knocking: null,
   ...roomDefaults(),
 }));

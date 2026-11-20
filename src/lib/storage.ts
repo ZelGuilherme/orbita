@@ -89,9 +89,11 @@ export interface UiPrefs {
   chatWidth: number | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
-  /** Planetas em 3D (desligado = uma imagem parada da cena). */
-  planets3d: boolean;
+  /** Como a órbita aparece: 3D, 2D (órbita plana) ou todos numa linha com o host no meio. */
+  orbitView: OrbitView;
 }
+
+export type OrbitView = '3d' | '2d' | 'line';
 
 const PROFILE_KEY = 'orbita.profile.v1';
 const SETTINGS_KEY = 'orbita.settings.v1';
@@ -265,10 +267,16 @@ export function loadUiPrefs(): UiPrefs {
   // no celular o chat cobre a chamada: começa fechado
   const wide = typeof window === 'undefined' || window.innerWidth > 760;
   const width = Number(saved?.chatWidth);
-  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true, planets3d: saved?.planets3d !== false };
+  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true, orbitView: orbitViewOf(saved) };
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);
+
+function orbitViewOf(saved: (Partial<UiPrefs> & { planets3d?: boolean }) | null): OrbitView {
+  const v = saved?.orbitView;
+  if (v === '3d' || v === '2d' || v === 'line') return v;
+  return saved?.planets3d === false ? '2d' : '3d';
+}
 
 export function loadPen(): PenPrefs {
   const saved = read<PenPrefs>(PEN_KEY) ?? {};

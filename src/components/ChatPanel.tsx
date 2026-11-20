@@ -47,7 +47,7 @@ import {
   shareFile,
 } from '../controller';
 import { MAX_TEXT_LENGTH, QUICK_EMOJIS, REACTIONS } from '../lib/config';
-import { formatBytes, isRisky } from '../lib/files';
+import { canDownloadSize, formatBytes, formatDuration, isRisky } from '../lib/files';
 import { imageToAttachment } from '../lib/images';
 import { isJumbo, mentionKeys, mentionsName, renderMarkdown } from '../lib/markdown';
 import type { Attachment, ChatMessage, FileAttachment, ImageAttachment, Member } from '../lib/protocol';
@@ -169,7 +169,7 @@ export function ChatPanel() {
         <MessageList roomName={roomName} />
       )}
       <Composer dropped={dropped} onDroppedHandled={() => setDropped(null)} />
-      {dragging && <div className="drop-overlay">Solte para enviar no chat (imagens e arquivos até 100 MB)</div>}
+      {dragging && <div className="drop-overlay">Solte para enviar no chat (imagens e arquivos até 1 GB)</div>}
     </aside>
   );
 }
@@ -411,7 +411,6 @@ interface MessageItemProps {
 const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, isHost, mentioned, meId, mentionNames, onMediaLoad }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
   const [picker, setPicker] = useState(false);
-  const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
 
   if (message.system) {
     return (
@@ -419,7 +418,7 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
         <Orbit size={16} />
         <span className="msg__text">{renderMarkdown(message.text, mentionNames)}</span>
         <time>{formatTime(message.ts)}</time>
-        <Reactions message={message} meId={meId} members={members} />
+        <Reactions message={message} meId={meId} />
       </div>
     );
   }
@@ -475,7 +474,7 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
         )}
         {message.attachment?.kind === 'image' && <ImageAttachmentView attachment={message.attachment} onLoad={onMediaLoad} />}
         {message.attachment?.kind === 'file' && <FileCard attachment={message.attachment} />}
-        <Reactions message={message} meId={meId} members={members} />
+        <Reactions message={message} meId={meId} />
       </div>
       <div className="msg__toolbar">
         <button type="button" aria-label="Reagir" onClick={() => setPicker(!picker)}>
@@ -520,9 +519,15 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
   );
 });
 
-function Reactions({ message, meId, members }: { message: ChatMessage; meId: string; members: Member[] }) {
+/** Só as mensagens com reação acompanham a lista de pessoas (para os nomes no balão). */
+function Reactions({ message, meId }: { message: ChatMessage; meId: string }) {
   const entries = Object.entries(message.reactions ?? {});
   if (!entries.length) return null;
+  return <ReactionList message={message} meId={meId} entries={entries} />;
+}
+
+function ReactionList({ message, meId, entries }: { message: ChatMessage; meId: string; entries: Array<[string, string[]]> }) {
+  const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   return (
     <div className="reactions">
       {entries.map(([emoji, ids]) => (
@@ -567,20 +572,27 @@ function FileCard({ attachment }: { attachment: FileAttachment }) {
   const transfer = useApp((s) => s.transfers[attachment.fileId]);
   const ownerHere = useApp((s) => !!s.room?.members.some((m) => m.id === attachment.ownerId && !m.reconnecting));
   const mine = hasLocalFile(attachment.fileId);
-  const downloading = transfer?.status === 'downloading';
+  const downloading = transfer?.status === 'downloading' || transfer?.status === 'retrying';
   const gone = !mine && (!ownerHere || (transfer?.status === 'error' && transfer.reason === 'gone'));
+  const tooBig = !mine && !canDownloadSize(attachment.size);
   const pct = downloading && attachment.size ? Math.floor((transfer.received / attachment.size) * 100) : 0;
+  const speed = transfer?.speed ?? 0;
+  const eta = speed > 0 ? formatDuration((attachment.size - (transfer?.received ?? 0)) / speed) : '';
   const status = mine
     ? 'fica disponível enquanto você estiver na órbita'
     : gone
       ? 'arquivo indisponível (quem mandou saiu da órbita)'
-      : downloading
-        ? `baixando… ${pct}%`
-        : transfer?.status === 'done'
-          ? 'baixado'
-          : transfer?.status === 'error'
-            ? 'a transferência caiu — tente de novo'
-            : 'baixa direto do computador de quem mandou';
+      : tooBig
+        ? 'grande demais para este navegador: abra no Chrome, Edge ou Brave'
+        : transfer?.status === 'retrying'
+          ? `a conexão caiu, voltando… (${pct}%, continua de onde parou)`
+          : downloading
+            ? `baixando… ${pct}%${speed > 0 ? ` · ${formatBytes(speed)}/s · falta ${eta}` : ''}`
+            : transfer?.status === 'done'
+              ? 'baixado'
+              : transfer?.status === 'error'
+                ? 'a transferência caiu, tente de novo'
+                : 'baixa direto do computador de quem mandou';
   return (
     <div className={cx('file-card', gone && 'is-gone')}>
       <FileText size={28} className="file-card__icon" />
@@ -603,7 +615,7 @@ function FileCard({ attachment }: { attachment: FileAttachment }) {
           Cancelar
         </button>
       ) : (
-        <button type="button" className="btn btn--sm" disabled={gone} onClick={() => downloadFile(attachment)}>
+        <button type="button" className="btn btn--sm" disabled={gone || tooBig} onClick={() => void downloadFile(attachment)}>
           <Download size={14} /> {mine ? 'Salvar' : gone ? 'Indisponível' : 'Baixar'}
         </button>
       )}
@@ -767,7 +779,7 @@ function Composer({ dropped, onDroppedHandled }: { dropped: File | null; onDropp
             e.target.value = '';
           }}
         />
-        <button type="button" className="composer__btn" aria-label="Enviar arquivo (até 100 MB)" disabled={busy} onClick={() => anyFileInput.current?.click()}>
+        <button type="button" className="composer__btn" aria-label="Enviar arquivo (até 1 GB)" disabled={busy} onClick={() => anyFileInput.current?.click()}>
           <Paperclip size={19} />
         </button>
         <input

@@ -7,7 +7,7 @@ import { errorMessage } from '../lib/util';
 import { appLikelyInstalled, canInstall, isStandalone, onInstallChange, openInApp, promptInstall } from '../lib/install';
 import { planetBackground, sanitizeName } from '../lib/util';
 import { setApp, toast, useApp } from '../store';
-import { LobbyList } from './Lobby';
+import { FixedRoomsList, LobbyList } from './Lobby';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx } from './ui';
@@ -101,6 +101,7 @@ export function Landing() {
   const [name, setName] = useState(profile.name);
   const [roomName, setRoomName] = useState(() => `Órbita de ${profile.name.split(' ')[0]}`);
   const [code, setCode] = useState(inviteCode ?? '');
+  const [fixed, setFixed] = useState(false);
   const secure = window.isSecureContext;
   const installable = useSyncExternalStore(onInstallChange, canInstall, () => false);
   const standalone = isStandalone();
@@ -125,7 +126,7 @@ export function Landing() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     commitName();
-    if (tab === 'create') void createRoom(roomName);
+    if (tab === 'create') void createRoom(roomName, fixed);
     else joinRoom(code);
   };
 
@@ -207,10 +208,18 @@ export function Landing() {
           </div>
 
           {tab === 'create' ? (
-            <label className="field">
-              <span>Nome da sala</span>
-              <input value={roomName} maxLength={40} onChange={(e) => setRoomName(e.target.value)} />
-            </label>
+            <>
+              <label className="field">
+                <span>Nome da sala</span>
+                <input value={roomName} maxLength={40} onChange={(e) => setRoomName(e.target.value)} />
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={fixed} onChange={(e) => setFixed(e.target.checked)} />
+                <span>
+                  <b>Órbita fixa</b> · o mesmo link sempre; quem já entrou pode reabrir quando estiver vazia (histórico e configurações ficam guardados no navegador de cada um)
+                </span>
+              </label>
+            </>
           ) : (
             <label className="field">
               <span>Código ou link do convite</span>
@@ -265,6 +274,7 @@ export function Landing() {
             </a>
           </div>
         </form>
+        <FixedRoomsList />
         <LobbyList />
       </main>
     </div>

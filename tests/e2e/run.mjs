@@ -22,6 +22,12 @@ const t0 = Date.now();
 const LOBBY = `orbita-e2e-${Math.random().toString(36).slice(2, 10)}`;
 const log = (...args) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1).padStart(5)}s]`, ...args);
 
+// servidor de sinalização local (não depende do servidor público do PeerJS, que limita conexões)
+const { PeerServer } = await import('peer');
+const SIGNAL_PORT = 9411;
+const signaling = PeerServer({ port: SIGNAL_PORT, path: '/' });
+const NETWORK = { host: 'localhost', port: SIGNAL_PORT, path: '/', secure: false, key: 'peerjs', iceServersJson: '' };
+
 const server = await createServer({ root, logLevel: 'error', server: { port: 5299 } });
 await server.listen();
 const BASE = server.resolvedUrls.local[0];
@@ -44,7 +50,7 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
   const context = await browser.newContext({ viewport, permissions: ['microphone', 'camera'], hasTouch: viewport.width < 500 });
   opened.push(context);
   await context.addInitScript(
-    ([n, c, extra, lobby]) => {
+    ([n, c, extra, lobby, network]) => {
       localStorage.setItem('orbita.lobbyId', lobby);
       if (!sessionStorage.getItem('e2e.init')) {
         sessionStorage.setItem('e2e.init', '1');
@@ -52,7 +58,7 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
           'orbita.profile.v1',
           JSON.stringify({ id: (Math.random().toString(36).slice(2, 12) + 'abcdefgh').slice(0, 16), name: n, color: c }),
         );
-        if (extra) localStorage.setItem('orbita.settings.v1', JSON.stringify(extra));
+        localStorage.setItem('orbita.settings.v1', JSON.stringify({ ...(extra ?? {}), network }));
       }
       window.__displayCalls = 0;
       // sem a janela "salvar como" (a gravação cai no download comum)
@@ -83,7 +89,7 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
         return stream;
       };
     },
-    [name, color, settings, LOBBY],
+    [name, color, settings, LOBBY, NETWORK],
   );
   const page = await context.newPage();
   page.on('console', (msg) => {
@@ -101,11 +107,18 @@ const membersOf = (page) =>
     return s.room?.members.map((m) => `${m.name}${m.id === s.room.hostId ? '👑' : ''}`).join(', ');
   });
 
+/** Fecha a janela de convite que abre ao criar a sala (ela carrega sob demanda). */
+async function closeInvite(page) {
+  await page.locator('.modal-backdrop').waitFor({ timeout: 10_000 }).catch(() => {});
+  await page.keyboard.press('Escape');
+  await page.locator('.modal-backdrop').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+}
+
 async function createRoom(user) {
   await user.page.goto(BASE);
   await user.page.getByRole('button', { name: /Criar e virar host/ }).click();
   await waitFor(user.page, () => window.__orbita?.getApp().phase === 'room');
-  await user.page.keyboard.press('Escape');
+  await closeInvite(user.page);
   return user.page.evaluate(() => window.__orbita.getApp().code);
 }
 
@@ -198,6 +211,45 @@ async function chamadaCompleta(opened) {
   if (got !== big.length) throw new Error(`arquivo chegou com ${got} bytes, esperado ${big.length}`);
   log('  arquivo P2P ok:', (got / 1024 / 1024).toFixed(1), 'MB baixados direto de quem mandou');
 
+  // arquivo grande: grava direto no "disco" (janela de salvar simulada) e continua depois de uma queda
+  const huge = Buffer.alloc(24 * 1024 * 1024 + 77);
+  for (let i = 0; i < huge.length; i += 4096) huge[i] = (i / 4096) & 255;
+  await a.page.locator('input[aria-label="Escolher arquivo"]').setInputFiles({ name: 'grande.bin', mimeType: 'application/octet-stream', buffer: huge });
+  await a.page.locator('.composer__file').waitFor();
+  await a.page.keyboard.press('Enter');
+  await b.page.evaluate(() => {
+    localStorage.setItem('orbita.diskFrom', String(10 * 1024 * 1024));
+    window.__disk = { bytes: 0, sum: 0, closed: false, states: [] };
+    window.showSaveFilePicker = async () => ({
+      createWritable: async () => ({
+        write: async (blob) => {
+          const buf = new Uint8Array(await blob.arrayBuffer());
+          for (let i = 0; i < buf.length; i++) if ((window.__disk.bytes + i) % 4096 === 0) window.__disk.sum += buf[i];
+          window.__disk.bytes += buf.length;
+        },
+        close: async () => {
+          window.__disk.closed = true;
+        },
+        abort: async () => {},
+      }),
+    });
+  });
+  const bigCard = b.page.locator('.file-card', { hasText: 'grande.bin' });
+  await bigCard.waitFor();
+  await bigCard.getByRole('button', { name: /Baixar/ }).click();
+  const bigId = await b.page.evaluate(() => window.__orbita.getApp().messages.find((m) => m.attachment?.name === 'grande.bin').attachment.fileId);
+  // derruba a conexão no meio: tem que voltar sozinho e continuar de onde parou
+  await waitFor(b.page, (id) => (window.__orbita.getApp().transfers[id]?.received ?? 0) > 1024 * 1024, bigId, 30_000);
+  const before = await b.page.evaluate((id) => window.__orbita.getApp().transfers[id].received, bigId);
+  await b.page.evaluate((id) => window.__orbitaFiles.breakConnection(id), bigId);
+  await waitFor(b.page, (id) => window.__orbita.getApp().transfers[id]?.status === 'retrying', bigId, 5_000);
+  await waitFor(b.page, () => window.__disk.closed, null, 90_000);
+  const disk = await b.page.evaluate(() => window.__disk);
+  let expectedSum = 0;
+  for (let i = 0; i < huge.length; i += 4096) expectedSum += huge[i];
+  if (disk.bytes !== huge.length || disk.sum !== expectedSum) throw new Error(`arquivo grande chegou errado: ${disk.bytes} bytes (esperado ${huge.length}), soma ${disk.sum}/${expectedSum}`);
+  log('  arquivo grande ok: gravado direto no disco, a conexão caiu em', (before / 1024 / 1024).toFixed(1), 'MB e continuou de onde parou');
+
   // foto de perfil: o Bruno escolhe uma foto e a Ana vê na lista de pessoas
   const png = await b.page.screenshot({ clip: { x: 0, y: 0, width: 64, height: 64 } });
   await b.page.getByRole('button', { name: 'Configurações' }).last().click();
@@ -255,6 +307,11 @@ async function chamadaCompleta(opened) {
   await b.page.waitForTimeout(1_500);
   const dragId = await b.page.evaluate(() => window.__orbita.getApp().meId);
   const box3d = await b.page.locator('.call .orbit3d').first().boundingBox();
+  // espera o planeta do Bruno estar à vista (não escondido atrás do host)
+  await waitFor(b.page, (id) => {
+    const p = window.__orbitaScene.screenPosition(id);
+    return !!p && window.__orbitaScene.pickAt(p.x, p.y) === id;
+  }, dragId, 20_000);
   const dragAt = await b.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
   await b.page.mouse.move(box3d.x + dragAt.x, box3d.y + dragAt.y);
   await b.page.mouse.down();
@@ -272,13 +329,70 @@ async function chamadaCompleta(opened) {
   if (!myOrbit || !(myOrbit.radius > 2)) throw new Error('arrastar o planeta não mudou a órbita');
   await waitFor(a.page, ([id, r]) => window.__orbita.getApp().room.members.find((m) => m.id === id)?.orbit?.radius === r, [dragId, myOrbit.radius], 10_000);
   log('  órbita 3D: Bruno arrastou o planeta (raio', myOrbit.radius, 'inclinação', myOrbit.incl, 'velocidade', myOrbit.speed, 'sentido', myOrbit.dir, ') e a Ana recebeu');
+  // ninguém entra em ninguém: Bruno e Carla na mesma órbita, em sentidos opostos (batem a cada ~3,5 s)
+  const setOrbit = (page, orbit) =>
+    page.evaluate((o) => {
+      const p = JSON.parse(localStorage.getItem('orbita.profile.v1'));
+      localStorage.setItem('orbita.profile.v1', JSON.stringify({ ...p, orbit: o }));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'orbita.profile.v1', storageArea: localStorage }));
+    }, orbit);
+  await setOrbit(b.page, { radius: 3.8, incl: 0, node: 0, speed: 0.9, dir: 1, phase: 0 });
+  await setOrbit(c.page, { radius: 3.8, incl: 0, node: 0, speed: 0.9, dir: -1, phase: 0 });
+  await waitFor(a.page, () => window.__orbita.getApp().room.members.filter((m) => m.orbit?.speed === 0.9).length === 2, null, 10_000);
+  const gaps = await a.page.evaluate(async () => {
+    const out = [];
+    for (let i = 0; i < 80; i++) {
+      out.push(window.__orbitaScene.minGap());
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return out;
+  });
+  const worst = Math.min(...gaps);
+  if (worst < 0) throw new Error(`um planeta entrou no outro (folga mínima ${worst.toFixed(2)})`);
+  log('  planetas se desviam: em 8 s de encontros de frente, a menor folga foi', worst.toFixed(2));
+
+  // reações: clique estoura em volta de quem mandou; arrastar até um planeta voa até essa pessoa
+  await a.page.getByRole('button', { name: 'Reações' }).click();
+  await a.page.getByRole('button', { name: 'Reagir com 🔥' }).click();
+  await waitFor(b.page, () => [...document.querySelectorAll('.fling')].some((el) => el.textContent === '🔥'), null, 10_000);
+  await a.page.waitForTimeout(1_100);
+  const brunoAt = await a.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
+  const orbitBox = await a.page.locator('.call .orbit3d').first().boundingBox();
+  const pick = await a.page.getByRole('button', { name: 'Reagir com 😂' }).boundingBox();
+  await a.page.mouse.move(pick.x + pick.width / 2, pick.y + pick.height / 2);
+  await a.page.mouse.down();
+  for (let i = 1; i <= 12; i++) {
+    const tx = orbitBox.x + brunoAt.x;
+    const ty = orbitBox.y + brunoAt.y;
+    await a.page.mouse.move(pick.x + ((tx - pick.x) * i) / 12, pick.y + ((ty - pick.y) * i) / 12);
+  }
+  // o Bruno pode ter andado na órbita: mira onde ele está agora
+  const nowAt = await a.page.evaluate((id) => window.__orbitaScene.screenPosition(id), dragId);
+  await a.page.mouse.move(orbitBox.x + nowAt.x, orbitBox.y + nowAt.y);
+  await a.page.mouse.up();
+  await waitFor(c.page, () => [...document.querySelectorAll('.fling--big')].some((el) => el.textContent === '😂'), null, 10_000);
+  await a.page.mouse.click(5, 5);
+  log('  reações ok: estourou em volta de quem mandou e voou até o planeta do Bruno');
+
   // câmera: centralizar e desligar/ligar o 3D (imagem parada)
   await a.page.getByRole('button', { name: 'Centralizar a câmera' }).first().click();
-  await a.page.getByRole('button', { name: /3D ligado/ }).first().click();
-  await waitFor(a.page, () => !!document.querySelector('.orbit3d__still'), null, 20_000);
-  await a.page.getByRole('button', { name: /3D desligado/ }).first().click();
-  await waitFor(a.page, () => !!document.querySelector('.orbit3d__canvas') && !document.querySelector('.orbit3d__still'), null, 20_000);
-  log('  3D desligado vira imagem parada e volta ao ligar');
+  // modos: 2D (órbita plana), linha (host no meio) e de volta ao 3D; as reações funcionam em todos
+  await a.page.getByRole('radio', { name: /2D/ }).first().click();
+  await waitFor(a.page, () => !!document.querySelector('.call .orbit') && !document.querySelector('.orbit3d__canvas'), null, 10_000);
+  await a.page.getByRole('radio', { name: /Linha/ }).first().click();
+  await waitFor(a.page, () => {
+    const items = [...document.querySelectorAll('.orbit-line__item')];
+    const host = items.findIndex((el) => el.classList.contains('is-host'));
+    return items.length === 3 && host === 1;
+  }, null, 10_000);
+  await a.page.waitForTimeout(1_100);
+  await a.page.getByRole('button', { name: 'Reações' }).click();
+  await a.page.getByRole('button', { name: 'Reagir com 🎉' }).click();
+  await waitFor(a.page, () => [...document.querySelectorAll('.orbit-line .fling')].some((el) => el.textContent === '🎉'), null, 5_000);
+  await a.page.mouse.click(5, 5);
+  await a.page.getByRole('radio', { name: /3D/ }).first().click();
+  await waitFor(a.page, () => !!document.querySelector('.orbit3d__canvas'), null, 20_000);
+  log('  modos ok: 2D, linha com o host no meio (com reação) e de volta ao 3D');
 
   // barras de qualidade da conexão, com ping e perda no título
   await waitFor(a.page, () => document.querySelectorAll('.people .signal').length >= 2, null, 15_000);
@@ -392,6 +506,32 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.live-volume input[type=range]').fill('100');
   await waitFor(a.page, () => ![...document.querySelectorAll('audio')].some((el) => el.muted));
   log('  volume da live até 300% ok');
+
+  // zoom na live (só para quem deu zoom); com o lápis, o traço cai embaixo do cursor mesmo com zoom
+  const liveTile = a.page.locator('.stage-featured .tile--live');
+  const tb = await liveTile.boundingBox();
+  await a.page.mouse.move(tb.x + tb.width * 0.3, tb.y + tb.height * 0.35);
+  for (let i = 0; i < 6; i++) await a.page.mouse.wheel(0, -240);
+  await waitFor(a.page, () => !!document.querySelector('.zoom-box.is-zoomed') && !!document.querySelector('.zoom-pill'));
+  if (await b.page.evaluate(() => !!document.querySelector('.zoom-box.is-zoomed'))) throw new Error('o zoom da Ana apareceu para o Bruno');
+  await liveTile.hover();
+  await a.page.getByRole('button', { name: /Lápis/ }).click();
+  const q = { x: tb.x + tb.width * 0.55, y: tb.y + tb.height * 0.5 };
+  await a.page.mouse.move(q.x, q.y);
+  await a.page.mouse.down();
+  await a.page.mouse.move(q.x + 30, q.y + 10, { steps: 6 });
+  await a.page.mouse.up();
+  const under = await a.page.evaluate(([x, y]) => {
+    const paths = [...document.querySelectorAll('.stage-featured .fx-strokes path')];
+    const r = paths[paths.length - 1]?.getBoundingClientRect();
+    return r ? x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12 : false;
+  }, [q.x, q.y]);
+  if (!under) throw new Error('com zoom, o traço não ficou embaixo do cursor');
+  await a.page.getByRole('button', { name: /Lápis/ }).click();
+  await a.page.locator('.zoom-pill').click();
+  await waitFor(a.page, () => !document.querySelector('.zoom-box.is-zoomed'));
+  await a.page.getByRole('button', { name: /Apagar tudo/ }).click().catch(() => {});
+  log('  zoom na live ok: só para quem deu zoom, o lápis desenha no lugar certo e o botão volta ao normal');
 
   // gravação: a Ana grava (vozes + a live do Bruno em destaque); todo mundo vê o aviso vermelho
   await a.page.getByRole('button', { name: 'Gravar a chamada' }).click();
@@ -714,7 +854,13 @@ async function extensao(opened) {
     ],
   });
   opened.push({ close: async () => { await context.close(); rmSync(dir, { recursive: true, force: true }); rmSync(profile, { recursive: true, force: true }); } });
-  await context.addInitScript((lobby) => localStorage.setItem('orbita.lobbyId', lobby), LOBBY);
+  await context.addInitScript(
+    ([lobby, network]) => {
+      localStorage.setItem('orbita.lobbyId', lobby);
+      if (!localStorage.getItem('orbita.settings.v1')) localStorage.setItem('orbita.settings.v1', JSON.stringify({ network }));
+    },
+    [LOBBY, NETWORK],
+  );
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker', { timeout: 20_000 }));
   const page = context.pages()[0] ?? (await context.newPage());
   page.on('pageerror', (err) => console.log('        [extensão ERRO]', err.message));
@@ -723,7 +869,7 @@ async function extensao(opened) {
   log('  a página reconheceu a extensão (versão', await page.evaluate(() => window.__orbita.getApp().extension), ')');
   await page.getByRole('button', { name: /Criar e virar host/ }).click();
   await waitFor(page, () => window.__orbita.getApp().inCall, null, 30_000);
-  await page.keyboard.press('Escape');
+  await closeInvite(page);
   const before = await page.evaluate(() => window.__orbita.getApp().micOn);
   // o mesmo caminho do atalho: o service worker manda para a aba do Órbita
   const run = (command) =>
@@ -739,6 +885,51 @@ async function extensao(opened) {
   log('  atalhos da extensão ok: microfone e ensurdecer mudaram na página');
 }
 
+/** Órbita fixa: o mesmo link sempre; quem já entrou reabre com o histórico; a coroa volta para quem criou. */
+async function orbitaFixa(opened) {
+  const a = await newUser('Ana', '#8b5cf6', opened);
+  const b = await newUser('Bruno', '#22d3ee', opened);
+  await a.page.goto(BASE);
+  await a.page.getByLabel('Nome da sala').fill('Fixa da Ana');
+  await a.page.locator('.check-row input').check();
+  await a.page.getByRole('button', { name: /Criar e virar host/ }).click();
+  await waitFor(a.page, () => window.__orbita?.getApp().phase === 'room');
+  await closeInvite(a.page);
+  const code = await a.page.evaluate(() => window.__orbita.getApp().code);
+  if (!(await a.page.evaluate(() => window.__orbita.getApp().room.fixed))) throw new Error('a sala não ficou fixa');
+  await joinRoom(b, code);
+  await a.page.locator('.composer textarea').fill('mensagem que tem que voltar');
+  await a.page.keyboard.press('Enter');
+  const msg = a.page.locator('.msg', { hasText: 'mensagem que tem que voltar' }).first();
+  await msg.waitFor();
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Fixar' }).click();
+  await waitFor(b.page, () => !!document.querySelector('.pinned-bar'));
+  log('  órbita fixa criada:', code);
+
+  // os dois saem: a sala fica vazia, mas cada um guardou a cópia
+  await b.page.evaluate(() => window.__orbita.session().leave());
+  await waitFor(b.page, () => window.__orbita.getApp().phase === 'landing', null, 15_000);
+  await a.page.evaluate(() => window.__orbita.session().endForAll());
+  await waitFor(a.page, () => window.__orbita.getApp().phase === 'landing', null, 15_000);
+  await waitFor(b.page, (c) => window.__orbita.getApp().fixedRooms.some((r) => r.code === c), code);
+  await b.page.locator('.fixed-rooms .lobby-room', { hasText: 'Fixa da Ana' }).waitFor();
+  await a.page.waitForTimeout(2_500);
+  log('  sala vazia; a cópia ficou guardada com quem já tinha entrado');
+
+  // o Bruno (que só tinha entrado) reabre: volta com o histórico e a mensagem fixada
+  await b.page.locator('.fixed-rooms .lobby-room', { hasText: 'Fixa da Ana' }).getByRole('button', { name: /Abrir/ }).click();
+  await waitFor(b.page, (c) => window.__orbita.getApp().phase === 'room' && window.__orbita.getApp().code === c && window.__orbita.getApp().isHost, code, 40_000);
+  await waitFor(b.page, () => document.querySelector('.pinned-bar')?.textContent?.includes('mensagem que tem que voltar'), null, 10_000);
+  log('  Bruno reabriu a órbita pelo mesmo código, com o histórico e a fixada');
+
+  // a Ana (quem criou) chega pelo mesmo link: a coroa volta para ela
+  await joinRoom(a, code);
+  await waitFor(a.page, () => window.__orbita.getApp().isHost === true, null, 40_000);
+  await waitFor(b.page, () => window.__orbita.getApp().net === 'connected' && !window.__orbita.getApp().isHost, null, 40_000);
+  log('  a criadora chegou e recebeu a coroa de volta; Bruno continuou na sala');
+}
+
 // ───────────────────────── execução ─────────────────────────
 
 let failed = false;
@@ -746,6 +937,7 @@ for (const [name, scenario] of [
   ['chamada completa + queda do host', chamadaCompleta],
   ['passar a coroa + celular', passarCoroa],
   ['lista de órbitas (saguão)', saguao],
+  ['órbita fixa', orbitaFixa],
   ['extensão de atalhos', extensao],
 ]) {
   // E2E_ONLY=trecho roda só os cenários cujo nome contém o trecho
@@ -765,5 +957,6 @@ for (const [name, scenario] of [
 
 await browser.close();
 await server.close();
+signaling.close?.();
 log(failed ? 'algum cenário falhou' : 'todos os cenários passaram');
 process.exit(failed ? 1 : 0);

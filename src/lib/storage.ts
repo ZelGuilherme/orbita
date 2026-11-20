@@ -77,6 +77,8 @@ export interface Settings {
 export interface UiPrefs {
   chatOpen: boolean;
   chatWidth: number | null;
+  /** Faixa de planetas embaixo da live escondida. */
+  orbitHidden: boolean;
 }
 
 const PROFILE_KEY = 'orbita.profile.v1';
@@ -243,7 +245,7 @@ export function loadUiPrefs(): UiPrefs {
   // no celular o chat cobre a chamada: começa fechado
   const wide = typeof window === 'undefined' || window.innerWidth > 760;
   const width = Number(saved?.chatWidth);
-  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null };
+  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true };
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);

@@ -812,3 +812,24 @@
 .profile-preview .avatar-edit {
   margin: 0 22px;
 }
+
+/* botão de liga/desliga em forma de etiqueta (enfeites do planeta) */
+.chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chip:hover {
+  color: var(--text);
+}
+
+.chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}

@@ -79,8 +79,10 @@ export interface AppState {
   peopleOpen: boolean;
   unread: number;
   mentions: number;
+  /** O que está grande no centro: 'live:<id>' ou 'cam:<id>' (null = a live que estiver no ar). */
   focus: string | null;
-  callLayout: 'auto' | 'grid' | 'orbit';
+  /** Faixa de planetas embaixo da live escondida. */
+  orbitHidden: boolean;
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
@@ -129,7 +131,6 @@ const roomDefaults = () => ({
   unread: 0,
   mentions: 0,
   focus: null,
-  callLayout: 'auto' as const,
   localMutes: {},
   audioBlocked: false,
   memberCard: null,
@@ -154,6 +155,7 @@ export const useApp = create<AppState>()(() => ({
   liveVolumes: loadLiveVolumes(),
   chatOpen: loadUiPrefs().chatOpen,
   chatWidth: loadUiPrefs().chatWidth,
+  orbitHidden: loadUiPrefs().orbitHidden,
   pen: loadPen(),
   updateReady: false,
   ...roomDefaults(),

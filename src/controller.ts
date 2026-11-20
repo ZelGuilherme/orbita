@@ -463,7 +463,7 @@ export async function shareInvite() {
 
 export function setChatOpen(chatOpen: boolean) {
   setApp((s) => ({ chatOpen, unread: chatOpen ? 0 : s.unread, mentions: chatOpen ? 0 : s.mentions }));
-  saveUiPrefs({ chatOpen, chatWidth: getApp().chatWidth });
+  saveUiPrefs({ chatOpen, chatWidth: getApp().chatWidth, orbitHidden: getApp().orbitHidden });
   syncTitle();
 }
 
@@ -476,8 +476,17 @@ export function applyUpdate() {
 
 export function setChatWidth(chatWidth: number | null, save = true) {
   setApp({ chatWidth });
-  if (save) saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth });
+  if (save) saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth, orbitHidden: getApp().orbitHidden });
 }
+
+/** Esconde ou mostra a faixa de planetas embaixo da live (fica salvo). */
+export function setOrbitHidden(orbitHidden: boolean) {
+  setApp({ orbitHidden });
+  saveUiPrefs({ chatOpen: getApp().chatOpen, chatWidth: getApp().chatWidth, orbitHidden });
+}
+
+/** Abre a câmera de alguém grande no centro (null = volta para a órbita ou para a live). */
+export const showCamera = (memberId: string | null) => setApp({ focus: memberId ? `cam:${memberId}` : null, memberCard: null, peopleOpen: false });
 
 export const toggleChat = () => setChatOpen(!getApp().chatOpen);
 
@@ -610,7 +619,7 @@ export async function startLive() {
       viewers: 0,
       effects: getApp().settings.liveEffects,
     };
-    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, callLayout: 'auto', floatTipClosed: false, ownPreview: false });
+    setApp({ live, localScreen: capture.stream, liveSurface: capture.surface, modal: null, floatTipClosed: false, ownPreview: false });
     sendPresence({ live });
     sfx.live();
     if (opts.audio && !capture.hasAudio) toast(audioHint(capture.surface), 'info', 8_000);
@@ -715,7 +724,7 @@ export function openLive(streamerId: string) {
   const member = s.room?.members.find((m) => m.id === streamerId);
   if (!member?.live) return;
   if (streamerId !== s.meId) watchLive(streamerId);
-  setApp({ callLayout: 'grid', focus: `live:${streamerId}`, memberCard: null, peopleOpen: false });
+  setApp({ focus: `live:${streamerId}`, memberCard: null, peopleOpen: false });
 }
 
 export function setLiveVolume(memberId: string, value: number) {

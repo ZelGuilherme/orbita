@@ -209,8 +209,16 @@ async function chamadaCompleta(opened) {
   await shot(a.page, 'chamada-orbita');
 
   await a.page.getByRole('button', { name: 'Ligar câmera' }).last().click();
-  await waitFor(b.page, () => [...document.querySelectorAll('.tile video')].some((v) => v.videoWidth > 0));
-  log('  câmera ok');
+  // a câmera aparece dentro do planeta de quem ligou
+  await waitFor(b.page, () => [...document.querySelectorAll('.orbit .planet.has-video video')].some((v) => v.videoWidth > 0));
+  // clicar no planeta com câmera abre grande no centro; fechar volta para a órbita
+  await b.page.getByRole('button', { name: 'Ana: ver câmera' }).click();
+  await waitFor(b.page, () => [...document.querySelectorAll('.stage-featured .tile video')].some((v) => v.videoWidth > 0), null, 10_000);
+  await b.page.locator('.stage-featured .tile').hover();
+  await b.page.getByRole('button', { name: /Fechar a câmera/ }).click();
+  await waitFor(b.page, () => !document.querySelector('.stage-featured') && !!document.querySelector('.orbit'), null, 10_000);
+  if (await b.page.evaluate(() => !!document.querySelector('.call .grid'))) throw new Error('ainda aparecem quadrados no centro');
+  log('  câmera ok: dentro do planeta, abre grande ao clicar e fecha de volta');
 
   await b.page.getByRole('button', { name: 'Iniciar live' }).last().click();
   await b.page.getByRole('button', { name: /Escolher o que transmitir/ }).click();
@@ -219,6 +227,15 @@ async function chamadaCompleta(opened) {
   await waitFor(a.page, () => [...document.querySelectorAll('.tile--live video')].some((v) => v.videoWidth > 0));
   await waitFor(b.page, () => window.__orbita.getApp().live?.viewers === 1, null, 15_000);
   log('  live ok (1 espectador)');
+  // a live fica grande; embaixo, a faixa de órbita, que dá para esconder e mostrar
+  if (!(await a.page.evaluate(() => !!document.querySelector('.stage-featured .tile--live') && !!document.querySelector('.orbit-strip .orbit')))) {
+    throw new Error('a live não ficou em destaque com a faixa de órbita embaixo');
+  }
+  await a.page.getByRole('button', { name: 'Esconder os planetas' }).click();
+  await waitFor(a.page, () => !document.querySelector('.orbit-strip') && !!document.querySelector('.orbit-strip__show'));
+  await a.page.locator('.orbit-strip__show').click();
+  await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit'));
+  log('  live em destaque com a faixa de planetas (esconder e mostrar ok)');
 
   // volume da live, separado do volume da voz
   await a.page.locator('.tile--live').first().hover();

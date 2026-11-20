@@ -96,8 +96,10 @@ export function shade(hex: string, amount: number): string {
 }
 
 /** Fundo de "planeta": esfera iluminada de cima-esquerda. */
-export function planetBackground(color: string): string {
-  return `radial-gradient(circle at 32% 26%, ${shade(color, 0.6)} 0%, ${color} 42%, ${shade(color, -0.55)} 100%)`;
+export function planetBackground(color: string, color2?: string | null): string {
+  if (!color2) return `radial-gradient(circle at 32% 26%, ${shade(color, 0.6)} 0%, ${color} 42%, ${shade(color, -0.55)} 100%)`;
+  // duas cores: degradê diagonal, com o mesmo brilho no canto de cima
+  return `radial-gradient(circle at 32% 26%, ${shade(color, 0.6)}cc 0%, transparent 38%), linear-gradient(150deg, ${color} 18%, ${color2} 78%, ${shade(color2, -0.5)} 100%)`;
 }
 
 export function hashColor(seed: string): string {

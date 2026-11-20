@@ -55,7 +55,7 @@ import { availableCodecs } from '../lib/liveQuality';
 import { LIVE_PRESETS, type LiveSurface } from '../lib/media';
 import { parseIceServers } from '../lib/peer';
 import type { LiveQuality } from '../lib/protocol';
-import { DEFAULT_PLANET, PLANET_TEXTURES, type PlanetStyle } from '../lib/planet';
+import { DEFAULT_PLANET, ORNAMENTS, PLANET_TEXTURES, type Level, type Ornament, type PlanetStyle } from '../lib/planet';
 import { DEFAULT_NETWORK, type NoiseFilter } from '../lib/storage';
 import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
 import { VoiceProcessor, voiceOptions } from '../lib/voice';
@@ -234,14 +234,39 @@ function PlanetEditor() {
   const look = profile.planet ?? DEFAULT_PLANET;
   const set = (patch: Partial<PlanetStyle>) => updateProfile({ planet: { ...look, ...patch } });
   const counts = (n: number) => Array.from({ length: n }, (_, i) => i);
+  const levels = (labels: [string, string, string], value: Level, onPick: (l: Level) => void) => (
+    <div className="seg">
+      {([1, 2, 3] as Level[]).map((l) => (
+        <button key={l} type="button" className={cx(value === l && 'is-on')} onClick={() => onPick(l)}>
+          {labels[l - 1]}
+        </button>
+      ))}
+    </div>
+  );
+  const toggleOrnament = (id: Ornament) =>
+    set({ ornaments: look.ornaments.includes(id) ? look.ornaments.filter((o) => o !== id) : [...look.ornaments, id] });
   return (
     <div className="planet-editor">
+      <div className="field">
+        <span>Segunda cor</span>
+        <div className="planet-editor__row">
+          <div className="seg">
+            <button type="button" className={cx(!look.color2 && 'is-on')} onClick={() => set({ color2: null })}>
+              Uma cor
+            </button>
+            <button type="button" className={cx(!!look.color2 && 'is-on')} onClick={() => set({ color2: look.color2 ?? '#22d3ee' })}>
+              Degradê
+            </button>
+          </div>
+          {look.color2 && <ColorInput value={look.color2} onChange={(color2) => set({ color2 })} label="Segunda cor" />}
+        </div>
+      </div>
       <div className="field">
         <span>Superfície</span>
         <div className="texture-row">
           {PLANET_TEXTURES.map((t) => (
             <button key={t.id} type="button" className={cx('texture-pick', look.texture === t.id && 'is-on')} aria-pressed={look.texture === t.id} onClick={() => set({ texture: t.id })}>
-              <Planet name={profile.name} color={profile.color} planet={{ ...look, texture: t.id, rings: 0, moons: 0, glow: false }} size={36} text=" " />
+              <Planet name={profile.name} color={profile.color} planet={{ ...look, texture: t.id, rings: 0, moons: 0, glow: false, ornaments: [] }} size={36} text=" " />
               <small>{t.label}</small>
             </button>
           ))}
@@ -261,7 +286,20 @@ function PlanetEditor() {
             {look.rings > 0 && <ColorInput value={look.ringColor} onChange={(ringColor) => set({ ringColor })} label="Cor dos anéis" />}
           </div>
           {look.rings > 0 && (
-            <input type="range" min={-40} max={40} value={look.ringTilt} aria-label="Inclinação dos anéis" onChange={(e) => set({ ringTilt: Number(e.target.value) })} />
+            <>
+              <input type="range" min={-40} max={40} value={look.ringTilt} aria-label="Inclinação dos anéis" onChange={(e) => set({ ringTilt: Number(e.target.value) })} />
+              <div className="planet-editor__row">
+                {levels(['Fino', 'Normal', 'Grosso'], look.ringWidth, (ringWidth) => set({ ringWidth }))}
+                <div className="seg">
+                  <button type="button" className={cx(!look.ringBands && 'is-on')} onClick={() => set({ ringBands: false })}>
+                    Liso
+                  </button>
+                  <button type="button" className={cx(look.ringBands && 'is-on')} onClick={() => set({ ringBands: true })}>
+                    Com faixas
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
         <div className="field">
@@ -276,6 +314,12 @@ function PlanetEditor() {
             </div>
             {look.moons > 0 && <ColorInput value={look.moonColor} onChange={(moonColor) => set({ moonColor })} label="Cor das luas" />}
           </div>
+          {look.moons > 0 && (
+            <div className="planet-editor__row">
+              {levels(['Pequenas', 'Médias', 'Grandes'], look.moonSize, (moonSize) => set({ moonSize }))}
+              {levels(['Devagar', 'Normal', 'Rápido'], look.moonSpeed, (moonSpeed) => set({ moonSpeed }))}
+            </div>
+          )}
         </div>
         <div className="field">
           <span>Brilho</span>
@@ -291,8 +335,24 @@ function PlanetEditor() {
             {look.glow && <ColorInput value={look.glowColor} onChange={(glowColor) => set({ glowColor })} label="Cor do brilho" />}
           </div>
         </div>
+        <div className="field">
+          <span>Enfeites em órbita</span>
+          <div className="planet-editor__row">
+            {ORNAMENTS.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className={cx('chip', look.ornaments.includes(o.id) && 'is-on')}
+                aria-pressed={look.ornaments.includes(o.id)}
+                onClick={() => toggleOrnament(o.id)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-      {profile.avatar && <p className="muted small">Com foto, ela fica no lugar da superfície; anéis, luas e brilho continuam em volta.</p>}
+      {profile.avatar && <p className="muted small">Com foto, a textura fica por cima dela; anéis, luas, brilho e enfeites continuam em volta.</p>}
     </div>
   );
 }

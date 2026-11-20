@@ -1,16 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import {
+  ChevronDown,
+  ChevronUp,
   Crown,
   Eye,
   HeadphoneOff,
   Headphones,
-  LayoutGrid,
   LoaderCircle,
   Maximize,
   MessageSquare,
   Mic,
   MicOff,
-  Orbit,
   Phone,
   PhoneOff,
   PictureInPicture2,
@@ -33,6 +33,8 @@ import {
   joinCall,
   leaveCall,
   openLive,
+  setOrbitHidden,
+  showCamera,
   reconnectLive,
   setLiveVolume,
   stopLive,
@@ -58,27 +60,65 @@ import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
 
 const EMPTY: Member[] = [];
 
+/** O que fica grande no centro: a escolhida (live ou câmera) ou, sem escolha, a live no ar. */
+function featuredOf(members: Member[], focus: string | null, meId: string | null): TileSpec | null {
+  if (focus) {
+    const split = focus.indexOf(':');
+    const kind = focus.slice(0, split);
+    const id = focus.slice(split + 1);
+    const m = members.find((x) => x.id === id);
+    if (m && kind === 'live' && m.live) return { id: focus, kind: 'live', member: m };
+    if (m && kind === 'cam' && m.cameraOn) return { id: focus, kind: 'cam', member: m };
+  }
+  // a live dos outros tem preferência sobre a minha
+  const live = members.find((m) => m.live && m.id !== meId) ?? members.find((m) => m.live);
+  return live ? { id: `live:${live.id}`, kind: 'live', member: live } : null;
+}
+
 export function CallView() {
   const room = useApp((s) => s.room);
   const inCall = useApp((s) => s.inCall);
   const joining = useApp((s) => s.joiningVoice);
-  const layout = useApp((s) => s.callLayout);
+  const focus = useApp((s) => s.focus);
+  const meId = useApp((s) => s.meId);
+  const orbitHidden = useApp((s) => s.orbitHidden);
   if (!room) return null;
   const callId = voiceChannelOf(room)?.id;
   const members = room.members.filter((m) => !!callId && m.voiceChannelId === callId);
-  // automático: órbita enquanto ninguém tem vídeo; grade quando aparece câmera ou live
-  const effective = layout === 'auto' ? (members.some((m) => m.cameraOn || m.live) ? 'grid' : 'orbit') : layout;
+  const featured = featuredOf(members, focus, meId);
 
+  // clicar num planeta: live abre a live, câmera abre a câmera; senão, o cartão da pessoa
   const pick = (member: Member, anchor: Element) => {
     if (member.live) openLive(member.id);
+    else if (member.cameraOn) showCamera(member.id);
     else openMemberCard(member.id, anchor);
   };
 
   return (
     <section className="call">
-      <StageHeader room={room} count={members.length} layout={effective} />
-      <div className="call__stage">
-        {effective === 'orbit' ? <OrbitStage members={members} room={room} onPick={pick} /> : <CallGrid members={members} />}
+      <StageHeader room={room} count={members.length} />
+      <div className={cx('call__stage', featured && 'is-featured')}>
+        {featured ? (
+          <div className={cx('stage-featured', orbitHidden && 'is-orbit-hidden')}>
+            <div className="stage-featured__main">
+              <Tile key={featured.id} spec={featured} big />
+            </div>
+            {orbitHidden ? (
+              <button type="button" className="orbit-strip__show" onClick={() => setOrbitHidden(false)}>
+                <ChevronUp size={15} /> Mostrar planetas ({members.length})
+              </button>
+            ) : (
+              <div className="orbit-strip">
+                <OrbitStage members={members} room={room} onPick={pick} compact />
+                <IconButton label="Esconder os planetas" className="orbit-strip__hide" tipPos="left" onClick={() => setOrbitHidden(true)}>
+                  <ChevronDown size={16} />
+                </IconButton>
+              </div>
+            )}
+          </div>
+        ) : (
+          <OrbitStage members={members} room={room} onPick={pick} />
+        )}
       </div>
       {inCall ? (
         <CallControls />
@@ -94,7 +134,7 @@ export function CallView() {
   );
 }
 
-function StageHeader({ room, count, layout }: { room: RoomState; count: number; layout: 'grid' | 'orbit' }) {
+function StageHeader({ room, count }: { room: RoomState; count: number }) {
   const chatOpen = useApp((s) => s.chatOpen);
   const unread = useApp((s) => s.unread);
   const mentions = useApp((s) => s.mentions);
@@ -113,14 +153,6 @@ function StageHeader({ room, count, layout }: { room: RoomState; count: number; 
         </span>
       </div>
       <div className="stage-header__tools">
-        <div className="seg" role="tablist" aria-label="Visualização">
-          <button type="button" role="tab" aria-selected={layout === 'orbit'} className={cx(layout === 'orbit' && 'is-on')} onClick={() => setApp({ callLayout: 'orbit' })}>
-            <Orbit size={15} /> <span>Órbita</span>
-          </button>
-          <button type="button" role="tab" aria-selected={layout === 'grid'} className={cx(layout === 'grid' && 'is-on')} onClick={() => setApp({ callLayout: 'grid' })}>
-            <LayoutGrid size={15} /> <span>Grade</span>
-          </button>
-        </div>
         <IconButton label="Convidar" tipPos="bottom" onClick={() => setApp({ modal: { kind: 'invite' } })}>
           <UserPlus size={20} />
         </IconButton>
@@ -136,9 +168,18 @@ function StageHeader({ room, count, layout }: { room: RoomState; count: number; 
 // ───────────────────────── visão em órbita ─────────────────────────
 
 const TILT = 0.36;
+const TILT_COMPACT = 0.24;
 
-function geometry(w: number, h: number, n: number) {
+function geometry(w: number, h: number, n: number, compact: boolean) {
   const minSide = Math.max(1, Math.min(w, h));
+  if (compact) {
+    // faixa baixa e larga embaixo da live: planetas menores e órbita bem achatada
+    const planet = Math.round(Math.max(28, Math.min(46, h / 4.6)));
+    const center = Math.round(Math.max(42, Math.min(72, h / 3.1)));
+    const maxRx = Math.max(planet * 2, Math.min(w / 2 - planet * 0.9 - 20, (h / 2 - planet * 0.75 - 12) / TILT_COMPACT));
+    const minRx = Math.min(maxRx, center * 0.62 + planet * 0.8);
+    return { planet, center, radii: [Math.max(minRx, maxRx * 0.9)], inner: n, tilt: TILT_COMPACT };
+  }
   const planet = Math.round(Math.max(40, Math.min(68, minSide / 7.5)));
   const center = Math.round(Math.max(72, Math.min(150, minSide / 3.6)));
   // a órbita cabe na largura (com o nome embaixo do planeta) e na altura (achatada pela inclinação)
@@ -147,7 +188,7 @@ function geometry(w: number, h: number, n: number) {
   const inner = twoRings ? Math.ceil(n * 0.4) : n;
   const minRx = Math.min(maxRx, center * 0.62 + planet * 0.7);
   const radii = twoRings ? [Math.max(minRx, maxRx * 0.62), Math.max(minRx * 1.3, maxRx)] : [Math.max(minRx, maxRx * 0.86)];
-  return { planet, center, radii, inner };
+  return { planet, center, radii, inner, tilt: TILT };
 }
 
 function place(g: ReturnType<typeof geometry>, i: number, n: number, t: number) {
@@ -160,7 +201,7 @@ function place(g: ReturnType<typeof geometry>, i: number, n: number, t: number) 
   const depth = Math.sin(angle);
   return {
     x: Math.cos(angle) * rx,
-    y: depth * rx * TILT,
+    y: depth * rx * g.tilt,
     front: depth > 0,
     scale: 0.8 + 0.2 * ((depth + 1) / 2),
     opacity: 0.7 + 0.3 * ((depth + 1) / 2),
@@ -170,7 +211,34 @@ function place(g: ReturnType<typeof geometry>, i: number, n: number, t: number) 
 const transformOf = (p: ReturnType<typeof place>) =>
   `translate(-50%, -50%) translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) scale(${p.scale.toFixed(3)})`;
 
-function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void }) {
+/** Câmera de alguém (a minha vem direto da câmera; a dos outros, da chamada). */
+function useCameraOf(member: Member | null): MediaStream | null {
+  const meId = useApp((s) => s.meId);
+  const local = useApp((s) => s.localCamera);
+  const remote = useApp((s) => (member ? s.voiceStreams[member.id] : undefined));
+  if (!member?.cameraOn) return null;
+  return member.id === meId ? local : (remote ?? null);
+}
+
+function OrbitPlanet({ member, size, host, speaking }: { member: Member; size: number; host?: boolean; speaking: boolean }) {
+  const meId = useApp((s) => s.meId);
+  const video = useCameraOf(member);
+  return (
+    <Planet
+      memberId={member.id}
+      name={member.name}
+      color={member.color}
+      size={size}
+      host={host}
+      speaking={speaking}
+      live={!!member.live}
+      video={video}
+      mirror={member.id === meId}
+    />
+  );
+}
+
+function OrbitStage({ members, room, onPick, compact = false }: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void; compact?: boolean }) {
   const speaking = useApp((s) => s.speaking);
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -190,7 +258,7 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
   const center = members.find((m) => m.id === room.hostId) ?? null;
   const satellites = members.filter((m) => m !== center);
   const n = satellites.length;
-  const g = geometry(box.w, box.h, n);
+  const g = geometry(box.w, box.h, n, compact);
   const key = satellites.map((m) => m.id).join('|');
 
   useEffect(() => {
@@ -211,46 +279,53 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-    // satellites, g e n derivam de key e box: as dependências abaixo bastam
-  }, [key, box.w, box.h, reduce]);
+    // satellites, g e n derivam de key, box e compact: as dependências abaixo bastam
+  }, [key, box.w, box.h, reduce, compact]);
 
   const cx0 = box.w / 2;
   const cy0 = box.h / 2;
 
   return (
-    <div className="orbit" ref={ref}>
+    <div className={cx('orbit', compact && 'orbit--compact')} ref={ref}>
       <div className="orbit__glow" style={{ width: g.center * 2.6, height: g.center * 2.6 }} />
       {box.w > 0 && (
         <svg className="orbit__rings" width={box.w} height={box.h} aria-hidden="true">
-          {g.radii.slice(0, n > 6 ? 2 : 1).map((rx, i) => (
-            <ellipse key={i} cx={cx0} cy={cy0} rx={rx} ry={rx * TILT} />
+          {g.radii.slice(0, n > 6 && !compact ? 2 : 1).map((rx, i) => (
+            <ellipse key={i} cx={cx0} cy={cy0} rx={rx} ry={rx * g.tilt} />
           ))}
         </svg>
       )}
 
       <div className="orbit__center">
         {center ? (
-          <button type="button" className="orbit__center-btn" onClick={(e) => onPick(center, e.currentTarget)}>
-            <Planet memberId={center.id} name={center.name} color={center.color} size={g.center} host speaking={!!speaking[center.id]} live={!!center.live} />
+          <button
+            type="button"
+            className="orbit__center-btn"
+            aria-label={center.live ? `${center.name}: assistir live` : center.cameraOn ? `${center.name}: ver câmera` : center.name}
+            onClick={(e) => onPick(center, e.currentTarget)}
+          >
+            <OrbitPlanet member={center} size={g.center} host speaking={!!speaking[center.id]} />
             <span className="orbit__center-name">
               {center.name}
               {(center.serverMuted || !center.micOn || center.deafened) && <MicOff size={14} />}
             </span>
-            <span className="orbit__center-sub">
-              {center.live ? (
-                <span className="live-badge">AO VIVO</span>
-              ) : (
-                <>
-                  <Crown size={12} /> host · centro da órbita
-                </>
-              )}
-            </span>
+            {!compact && (
+              <span className="orbit__center-sub">
+                {center.live ? (
+                  <span className="live-badge">AO VIVO</span>
+                ) : (
+                  <>
+                    <Crown size={12} /> host · centro da órbita
+                  </>
+                )}
+              </span>
+            )}
           </button>
         ) : (
           <div className="orbit__center-btn">
             <Planet name={room.name} color={hashColor(room.code)} size={g.center} text={roomInitials(room.name)} />
             <span className="orbit__center-name">{room.name}</span>
-            <span className="orbit__center-sub is-muted">{members.length ? 'o host não está na chamada' : 'ninguém em órbita ainda'}</span>
+            {!compact && <span className="orbit__center-sub is-muted">{members.length ? 'o host não está na chamada' : 'ninguém em órbita ainda'}</span>}
           </div>
         )}
       </div>
@@ -266,13 +341,13 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
           style={{ transform: transformOf(place(g, i, n, 0)) }}
           role="button"
           tabIndex={0}
-          aria-label={m.live ? `${m.name}: assistir live` : m.name}
+          aria-label={m.live ? `${m.name}: assistir live` : m.cameraOn ? `${m.name}: ver câmera` : m.name}
           onClick={(e) => onPick(m, e.currentTarget)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') onPick(m, e.currentTarget);
           }}
         >
-          <Planet memberId={m.id} name={m.name} color={m.color} size={g.planet} speaking={!!speaking[m.id]} live={!!m.live} />
+          <OrbitPlanet member={m} size={g.planet} speaking={!!speaking[m.id]} />
           <span className="orbit__label">
             {m.live && <span className="live-dot" />}
             {m.name}
@@ -284,76 +359,12 @@ function OrbitStage({ members, room, onPick }: { members: Member[]; room: RoomSt
   );
 }
 
-// ───────────────────────── grade ─────────────────────────
+// ───────────────────────── vídeo em destaque ─────────────────────────
 
 interface TileSpec {
   id: string;
   kind: 'cam' | 'live';
   member: Member;
-}
-
-function columns(count: number, wide: boolean) {
-  if (count <= 1) return 1;
-  if (count <= 4) return wide ? 2 : 1;
-  if (count <= 9) return wide ? 3 : 2;
-  return wide ? 4 : 2;
-}
-
-function CallGrid({ members }: { members: Member[] }) {
-  const focus = useApp((s) => s.focus);
-  const ref = useRef<HTMLDivElement>(null);
-  const [wide, setWide] = useState(true);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = () => setWide(el.clientWidth > 640);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const tiles: TileSpec[] = [];
-  for (const m of members) {
-    if (m.live) tiles.push({ id: `live:${m.id}`, kind: 'live', member: m });
-    tiles.push({ id: `cam:${m.id}`, kind: 'cam', member: m });
-  }
-  const focused = tiles.find((t) => t.id === focus);
-
-  if (!tiles.length) {
-    return (
-      <div className="grid grid--empty" ref={ref}>
-        <p className="muted">Ninguém na chamada ainda.</p>
-      </div>
-    );
-  }
-
-  if (focused) {
-    return (
-      <div className="grid grid--focus" ref={ref}>
-        <div className="grid__main">
-          <Tile spec={focused} big />
-        </div>
-        {tiles.length > 1 && (
-          <div className="grid__strip">
-            {tiles
-              .filter((t) => t !== focused)
-              .map((t) => (
-                <Tile key={t.id} spec={t} />
-              ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid" ref={ref} style={{ '--cols': columns(tiles.length, wide) } as CSSProperties}>
-      {tiles.map((t) => (
-        <Tile key={t.id} spec={t} />
-      ))}
-    </div>
-  );
 }
 
 function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
@@ -389,7 +400,6 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const live = spec.kind === 'live' ? m.live : null;
   const effects = !!live && (live.effects || isMe);
 
-  const toggleFocus = () => setApp({ focus: focus === spec.id ? null : spec.id });
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     else void ref.current?.requestFullscreen?.().catch(() => {});
@@ -403,7 +413,6 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
     <div
       ref={ref}
       className={cx('tile', spec.kind === 'live' && 'tile--live', spec.kind === 'cam' && speaking && 'is-speaking', big && 'tile--big')}
-      onClick={toggleFocus}
       onDoubleClick={fullscreen}
     >
       {hideOwn ? (
@@ -504,6 +513,17 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
               </IconButton>
             )
           )}
+        </div>
+      )}
+
+      {spec.kind === 'cam' && (
+        <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <IconButton label="Tela cheia" tipPos="bottom" onClick={fullscreen}>
+            <Maximize size={16} />
+          </IconButton>
+          <IconButton label="Fechar a câmera (voltar para a órbita)" tipPos="bottom" onClick={() => showCamera(null)}>
+            <X size={16} />
+          </IconButton>
         </div>
       )}
 

@@ -556,7 +556,7 @@ input[type='range'] {
 
 .planet__initial {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   font: 800 calc(var(--size) * 0.4) / 1 var(--font-display);
   color: rgba(255, 255, 255, 0.96);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -572,7 +572,7 @@ input[type='range'] {
   top: 37%;
   bottom: 37%;
   border-radius: 50%;
-  border: max(1.5px, calc(var(--size) * 0.055)) solid var(--ring, #c4b5fd);
+  border: max(1.5px, calc(var(--size) * var(--ring-w, 0.055))) solid var(--ring, #c4b5fd);
   transform: rotate(var(--tilt, -16deg));
   pointer-events: none;
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ring, #c4b5fd) 45%, transparent));
@@ -583,8 +583,18 @@ input[type='range'] {
   right: -42%;
   top: 33%;
   bottom: 33%;
-  border-width: max(1px, calc(var(--size) * 0.03));
+  border-width: max(1px, calc(var(--size) * var(--ring-w, 0.055) * 0.6));
   opacity: 0.8;
+}
+
+/* anéis com faixas: linha dupla (precisa de um mínimo de espessura para aparecer) */
+.planet__ring.is-banded {
+  border-style: double;
+  border-width: max(3px, calc(var(--size) * var(--ring-w, 0.055) * 1.5));
+}
+
+.planet__ring--outer.is-banded {
+  border-width: max(3px, calc(var(--size) * var(--ring-w, 0.055)));
 }
 
 .planet__ring--back {
@@ -597,45 +607,107 @@ input[type='range'] {
   clip-path: inset(50% 0 0 0);
 }
 
-/* texturas (por cima da cor, por baixo da inicial) */
+/* texturas: por cima da cor e da foto, girando devagar (o planeta "roda") */
 .planet__texture {
   position: absolute;
   inset: 0;
+  z-index: 1;
+  overflow: hidden;
   border-radius: 50%;
   pointer-events: none;
+}
+
+.planet__tex {
+  position: absolute;
+  inset: -21%;
+  animation: tex-spin 80s linear infinite;
+}
+
+@keyframes tex-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planet__tex {
+    animation: none;
+  }
 }
 
 .tex-stripes {
   background: repeating-linear-gradient(
     168deg,
-    rgba(255, 255, 255, 0.2) 0 9%,
-    transparent 9% 17%,
-    rgba(0, 0, 0, 0.2) 17% 23%,
-    transparent 23% 31%
+    rgba(255, 255, 255, 0.2) 0 6.5%,
+    transparent 6.5% 12%,
+    rgba(0, 0, 0, 0.2) 12% 16%,
+    transparent 16% 22%
   );
 }
 
 .tex-craters {
   background:
-    radial-gradient(circle at 30% 34%, rgba(0, 0, 0, 0.32) 0 7%, rgba(255, 255, 255, 0.18) 8% 9.5%, transparent 10%),
-    radial-gradient(circle at 66% 60%, rgba(0, 0, 0, 0.3) 0 10%, rgba(255, 255, 255, 0.16) 11% 12.5%, transparent 13%),
-    radial-gradient(circle at 42% 74%, rgba(0, 0, 0, 0.28) 0 5%, rgba(255, 255, 255, 0.15) 6% 7%, transparent 7.5%),
-    radial-gradient(circle at 72% 28%, rgba(0, 0, 0, 0.26) 0 4%, transparent 5%);
+    radial-gradient(circle at 34% 36%, rgba(0, 0, 0, 0.32) 0 5%, rgba(255, 255, 255, 0.18) 5.6% 6.6%, transparent 7%),
+    radial-gradient(circle at 62% 58%, rgba(0, 0, 0, 0.3) 0 7%, rgba(255, 255, 255, 0.16) 7.6% 8.6%, transparent 9%),
+    radial-gradient(circle at 44% 68%, rgba(0, 0, 0, 0.28) 0 3.6%, rgba(255, 255, 255, 0.15) 4.2% 5%, transparent 5.4%),
+    radial-gradient(circle at 66% 32%, rgba(0, 0, 0, 0.26) 0 3%, transparent 3.6%);
 }
 
 .tex-spots {
   background:
-    radial-gradient(ellipse 22% 14% at 34% 40%, rgba(255, 255, 255, 0.26), transparent 70%),
-    radial-gradient(ellipse 16% 12% at 64% 66%, rgba(0, 0, 0, 0.24), transparent 70%),
-    radial-gradient(ellipse 12% 9% at 70% 34%, rgba(255, 255, 255, 0.2), transparent 70%),
-    radial-gradient(ellipse 14% 10% at 36% 72%, rgba(0, 0, 0, 0.2), transparent 70%);
+    radial-gradient(ellipse 16% 10% at 38% 42%, rgba(255, 255, 255, 0.26), transparent 70%),
+    radial-gradient(ellipse 12% 8% at 60% 62%, rgba(0, 0, 0, 0.24), transparent 70%),
+    radial-gradient(ellipse 9% 6% at 64% 36%, rgba(255, 255, 255, 0.2), transparent 70%),
+    radial-gradient(ellipse 10% 7% at 40% 66%, rgba(0, 0, 0, 0.2), transparent 70%);
 }
 
 .tex-clouds {
   background:
-    radial-gradient(ellipse 40% 12% at 36% 30%, rgba(255, 255, 255, 0.42), transparent 70%),
-    radial-gradient(ellipse 46% 10% at 62% 52%, rgba(255, 255, 255, 0.34), transparent 70%),
-    radial-gradient(ellipse 34% 9% at 40% 74%, rgba(255, 255, 255, 0.3), transparent 70%);
+    radial-gradient(ellipse 28% 8% at 40% 34%, rgba(255, 255, 255, 0.42), transparent 70%),
+    radial-gradient(ellipse 32% 7% at 58% 51%, rgba(255, 255, 255, 0.34), transparent 70%),
+    radial-gradient(ellipse 24% 6% at 42% 66%, rgba(255, 255, 255, 0.3), transparent 70%);
+}
+
+.tex-ice {
+  background:
+    radial-gradient(ellipse 40% 14% at 50% 18%, rgba(255, 255, 255, 0.75), transparent 72%),
+    radial-gradient(ellipse 36% 12% at 50% 82%, rgba(255, 255, 255, 0.65), transparent 72%),
+    linear-gradient(118deg, transparent 47%, rgba(224, 242, 254, 0.55) 47.6% 48.4%, transparent 49%),
+    linear-gradient(32deg, transparent 55%, rgba(224, 242, 254, 0.5) 55.6% 56.3%, transparent 57%),
+    linear-gradient(74deg, transparent 38%, rgba(224, 242, 254, 0.45) 38.6% 39.2%, transparent 40%),
+    rgba(186, 230, 253, 0.18);
+}
+
+.tex-lava {
+  background:
+    linear-gradient(128deg, transparent 44%, rgba(255, 140, 0, 0.85) 44.8% 46%, transparent 47%),
+    linear-gradient(48deg, transparent 52%, rgba(255, 90, 0, 0.8) 52.7% 53.8%, transparent 54.6%),
+    linear-gradient(96deg, transparent 36%, rgba(255, 196, 0, 0.7) 36.6% 37.4%, transparent 38.2%),
+    radial-gradient(circle at 60% 40%, rgba(255, 120, 0, 0.6) 0 3%, transparent 4.5%),
+    radial-gradient(circle at 42% 62%, rgba(255, 70, 0, 0.55) 0 2.5%, transparent 4%),
+    rgba(20, 0, 0, 0.42);
+}
+
+.tex-gas {
+  background:
+    radial-gradient(ellipse 9% 5.5% at 60% 58%, rgba(185, 28, 28, 0.6), rgba(185, 28, 28, 0.2) 60%, transparent 75%),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 237, 213, 0.22) 0 4%,
+      rgba(120, 53, 15, 0.22) 4% 7%,
+      transparent 7% 10%,
+      rgba(255, 255, 255, 0.12) 10% 12%,
+      rgba(0, 0, 0, 0.14) 12% 15%
+    );
+}
+
+.tex-continents {
+  background:
+    radial-gradient(ellipse 13% 9% at 38% 38%, rgba(34, 197, 94, 0.75), rgba(21, 128, 61, 0.55) 60%, transparent 72%),
+    radial-gradient(ellipse 9% 13% at 62% 56%, rgba(132, 204, 22, 0.7), rgba(77, 124, 15, 0.5) 60%, transparent 72%),
+    radial-gradient(ellipse 8% 6% at 44% 64%, rgba(180, 140, 80, 0.7), transparent 72%),
+    radial-gradient(ellipse 7% 5% at 66% 34%, rgba(34, 197, 94, 0.6), transparent 72%),
+    rgba(37, 99, 235, 0.2);
 }
 
 /* luas: giram em volta do planeta */
@@ -645,18 +717,18 @@ input[type='range'] {
   z-index: 3;
   border-radius: 50%;
   pointer-events: none;
-  animation: moon-orbit 9s linear infinite;
+  animation: moon-orbit calc(9s * var(--moon-speed, 1)) linear infinite;
 }
 
 .planet__orbit--2 {
   inset: -34%;
-  animation-duration: 14s;
+  animation-duration: calc(14s * var(--moon-speed, 1));
   animation-direction: reverse;
 }
 
 .planet__orbit--3 {
   inset: -12%;
-  animation-duration: 6.5s;
+  animation-duration: calc(6.5s * var(--moon-speed, 1));
   animation-delay: -3s;
 }
 
@@ -664,8 +736,8 @@ input[type='range'] {
   position: absolute;
   top: -4%;
   left: 50%;
-  width: max(4px, calc(var(--size) * 0.16));
-  height: max(4px, calc(var(--size) * 0.16));
+  width: max(4px, calc(var(--size) * 0.16 * var(--moon-scale, 1)));
+  height: max(4px, calc(var(--size) * 0.16 * var(--moon-scale, 1)));
   transform: translateX(-50%);
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff, var(--moon, #e2e8f0) 45%, color-mix(in srgb, var(--moon, #e2e8f0) 55%, #000));
@@ -673,13 +745,83 @@ input[type='range'] {
 }
 
 .planet__orbit--2 .planet__moon {
-  width: max(3px, calc(var(--size) * 0.11));
-  height: max(3px, calc(var(--size) * 0.11));
+  width: max(3px, calc(var(--size) * 0.11 * var(--moon-scale, 1)));
+  height: max(3px, calc(var(--size) * 0.11 * var(--moon-scale, 1)));
 }
 
 .planet__orbit--3 .planet__moon {
-  width: max(3px, calc(var(--size) * 0.09));
-  height: max(3px, calc(var(--size) * 0.09));
+  width: max(3px, calc(var(--size) * 0.09 * var(--moon-scale, 1)));
+  height: max(3px, calc(var(--size) * 0.09 * var(--moon-scale, 1)));
+}
+
+/* enfeites: estrela, cometa, satélite e nave, cada um na sua órbita */
+.planet__orn {
+  inset: -40%;
+  animation-duration: 17s;
+}
+
+.planet__orn-shape {
+  position: absolute;
+  top: -6%;
+  left: 50%;
+  width: max(8px, calc(var(--size) * 0.26));
+  height: max(8px, calc(var(--size) * 0.26));
+  transform: translateX(-50%) rotate(90deg);
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+.orn-star {
+  inset: -30%;
+  animation-duration: 11s;
+  animation-delay: -5s;
+}
+
+.orn-star .planet__orn-shape {
+  animation: orn-twinkle 1.6s ease-in-out infinite alternate;
+}
+
+.orn-comet {
+  inset: -46%;
+  animation-duration: 8s;
+  animation-direction: reverse;
+  animation-delay: -2s;
+}
+
+.orn-comet .planet__orn-shape {
+  transform: translateX(-50%) rotate(-45deg);
+}
+
+.orn-satellite {
+  inset: -36%;
+  animation-duration: 21s;
+  animation-delay: -11s;
+}
+
+.orn-ship {
+  inset: -50%;
+  animation-duration: 13s;
+  animation-delay: -7s;
+}
+
+@keyframes orn-twinkle {
+  from {
+    opacity: 0.55;
+    scale: 0.8;
+  }
+  to {
+    opacity: 1;
+    scale: 1.1;
+  }
+}
+
+/* câmera ligada: aparece dentro do planeta */
+.planet.has-video .planet__body .video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 @keyframes moon-orbit {

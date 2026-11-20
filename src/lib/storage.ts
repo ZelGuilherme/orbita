@@ -93,6 +93,8 @@ export interface UiPrefs {
   peopleWidth: number | null;
   /** Lista de pessoas minimizada (só no computador; no celular ela é uma gaveta). */
   peopleHidden: boolean;
+  /** Barra de laser/lápis da live minimizada. */
+  fxBarHidden: boolean;
 }
 
 export type OrbitView = '3d' | '2d' | 'line';
@@ -275,6 +277,7 @@ export function loadUiPrefs(): UiPrefs {
     orbitView: orbitViewOf(saved),
     peopleWidth: Number.isFinite(people) && people >= 180 ? people : null,
     peopleHidden: saved?.peopleHidden === true,
+    fxBarHidden: saved?.fxBarHidden === true,
   };
 }
 

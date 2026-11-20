@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
-import { Crosshair, Eraser, Pencil, Trash2 } from 'lucide-react';
-import { beginErase, beginStroke, clearDrawings, endErase, endStroke, extendErase, extendStroke, hideLaser, moveLaser, setPen, setTool } from '../controller';
+import { ChevronDown, ChevronUp, Crosshair, Eraser, Pencil, Trash2 } from 'lucide-react';
+import { beginErase, beginStroke, clearDrawings, endErase, endStroke, extendErase, extendStroke, hideLaser, moveLaser, setFxBarHidden, setPen, setTool } from '../controller';
 import { ERASER_SIZE, onDrawing, onFx, PEN_SIZE, strokesOf } from '../lib/fx';
 import type { FxStroke, Member, PenStyle } from '../lib/protocol';
 import { useApp, type FxTool } from '../store';
@@ -414,6 +414,18 @@ export function FxBar({ streamerId }: { streamerId: string }) {
     if (tool !== 'laser') return;
     return () => hideLaser(streamerId);
   }, [tool, streamerId]);
+  const hidden = useApp((s) => s.fxBarHidden);
+
+  // minimizada: só um botãozinho para trazer a barra de volta
+  if (hidden) {
+    return (
+      <div className="fx-bar fx-bar--min" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <button type="button" className="fx-bar__show" aria-label="Mostrar as ferramentas (laser, lápis…)" onClick={() => setFxBarHidden(false)}>
+          <Pencil size={14} /> Ferramentas <ChevronUp size={14} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fx-bar" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
@@ -522,6 +534,10 @@ export function FxBar({ streamerId }: { streamerId: string }) {
       </button>
       <button type="button" className="fx-bar__btn" aria-label="Apagar tudo" data-tip="Apagar todos os desenhos" disabled={!hasDrawing} onClick={() => clearDrawings(streamerId)}>
         <Trash2 size={17} />
+      </button>
+      <span className="fx-bar__sep" aria-hidden="true" />
+      <button type="button" className="fx-bar__btn" aria-label="Minimizar as ferramentas" data-tip="Minimizar as ferramentas" onClick={() => setFxBarHidden(true)}>
+        <ChevronDown size={17} />
       </button>
     </div>
   );

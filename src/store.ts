@@ -107,6 +107,8 @@ export interface AppState {
   orbitHidden: boolean;
   /** Como a órbita aparece: 3D, 2D ou em anéis parados (guardado como 'line'). */
   orbitView: OrbitView;
+  /** Barra de laser/lápis da live minimizada. */
+  fxBarHidden: boolean;
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
@@ -203,6 +205,7 @@ export const useApp = create<AppState>()(() => ({
   peopleHidden: loadUiPrefs().peopleHidden,
   orbitHidden: loadUiPrefs().orbitHidden,
   orbitView: loadUiPrefs().orbitView,
+  fxBarHidden: loadUiPrefs().fxBarHidden,
   pen: loadPen(),
   updateReady: false,
   lobbyRooms: [],

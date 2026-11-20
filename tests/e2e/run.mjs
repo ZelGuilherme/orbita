@@ -632,6 +632,14 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Apagar tudo' }).click();
   for (const u of [a, b, c]) await waitFor(u.page, () => !document.querySelector('.tile--live .fx-strokes path'), null, 10_000);
   log('  apagar tudo ok para todo mundo');
+  // a barra de ferramentas minimiza (e a ferramenta desliga) e volta com um clique
+  await a.page.locator('.tile--live').first().hover();
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Lápis' }).click();
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Minimizar as ferramentas' }).click();
+  await waitFor(a.page, () => !!document.querySelector('.fx-bar--min') && !document.querySelector('.fx-bar [aria-label="Lápis"]') && window.__orbita.getApp().tool === null);
+  await a.page.getByRole('button', { name: /Mostrar as ferramentas/ }).click();
+  await waitFor(a.page, () => !!document.querySelector('.fx-bar [aria-label="Lápis"]') && !document.querySelector('.fx-bar--min'));
+  log('  ferramentas da live minimizam e voltam');
   await c.page.getByRole('button', { name: 'Parar de assistir' }).click().catch(() => {});
 
   // opções com a live no ar: qualidade e trocar a fonte, sem derrubar o espectador

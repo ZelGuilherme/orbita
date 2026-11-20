@@ -620,7 +620,13 @@ export async function shareInvite() {
 /** Grava as preferências da interface (chat, lista de pessoas, faixa de planetas, 3D). */
 function persistUi() {
   const s = getApp();
-  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, orbitView: s.orbitView, peopleWidth: s.peopleWidth, peopleHidden: s.peopleHidden });
+  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, orbitView: s.orbitView, peopleWidth: s.peopleWidth, peopleHidden: s.peopleHidden, fxBarHidden: s.fxBarHidden });
+}
+
+/** Minimiza ou mostra a barra de laser/lápis da live (fica salvo). Minimizando, a ferramenta desliga. */
+export function setFxBarHidden(fxBarHidden: boolean) {
+  setApp(fxBarHidden ? { fxBarHidden, tool: null } : { fxBarHidden });
+  persistUi();
 }
 
 /** Como a órbita aparece: 3D, 2D (órbita plana) ou todos numa linha (fica salvo). */

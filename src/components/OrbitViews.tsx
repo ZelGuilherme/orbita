@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Box, Circle, Maximize, MicOff, Target, ZoomIn, ZoomOut } from 'lucide-react';
-import { setOrbitView } from '../controller';
+import { Box, ChevronDown, Circle, Maximize, MicOff, Target, ZoomIn, ZoomOut } from 'lucide-react';
+import { setOrbitHidden, setOrbitView } from '../controller';
 import type { Member, RoomState } from '../lib/protocol';
 import type { OrbitView } from '../lib/storage';
 import { hashColor, roomInitials } from '../lib/util';
@@ -16,28 +16,36 @@ const MODES: Array<{ id: OrbitView; label: string; title: string; icon: typeof B
 ];
 
 /** Troca entre 3D, 2D e anéis (fica sempre no canto de cima da área dos planetas). */
-export function OrbitModeSwitch() {
+export function OrbitModeSwitch({ compact = false }: { compact?: boolean }) {
   const mode = useApp((s) => s.orbitView);
   const can3d = hasWebGL();
   return (
-    <div className="orbit-modes" role="radiogroup" aria-label="Como mostrar os planetas">
-      {MODES.filter((m) => m.id !== '3d' || can3d).map((m) => {
-        const Icon = m.icon;
-        return (
-          <button
-            key={m.id}
-            type="button"
-            role="radio"
-            aria-checked={mode === m.id}
-            className={cx('orbit3d__tool', mode === m.id && 'is-on')}
-            title={m.title}
-            onClick={() => setOrbitView(m.id)}
-          >
-            <Icon size={13} /> {m.label}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className="orbit-modes" role="radiogroup" aria-label="Como mostrar os planetas">
+        {MODES.filter((m) => m.id !== '3d' || can3d).map((m) => {
+          const Icon = m.icon;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={mode === m.id}
+              className={cx('orbit3d__tool', mode === m.id && 'is-on')}
+              title={m.title}
+              onClick={() => setOrbitView(m.id)}
+            >
+              <Icon size={13} /> {m.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* na faixa embaixo da live: minimizar os planetas (a live ocupa tudo) */}
+      {compact && (
+        <button type="button" className="orbit3d__tool orbit-min" onClick={() => setOrbitHidden(true)}>
+          <ChevronDown size={14} /> Minimizar planetas
+        </button>
+      )}
+    </>
   );
 }
 
@@ -416,9 +424,9 @@ export function OrbitRings({
       {ready && (
         <div className="orbit-rings__stage" ref={stage} style={{ left: pad.side, top: pad.top, width: w, height: h }}>
           <svg className="orbit-rings__lines" width={w} height={h} viewBox={`${-w / 2} ${-h / 2} ${w} ${h}`} aria-hidden="true">
-            {layout.rings.map((r, i) => (
-              layout.shape === 2 ? <ellipse key={i} cx={0} cy={cy} rx={r.rx} ry={r.ry} /> : <path key={i} d={ringPath(r.rx, r.ry, layout.shape, cy)} />
-            ))}
+            {layout.rings.map((r, i) =>
+              layout.shape === 2 ? <ellipse key={i} cx={0} cy={cy} rx={r.rx} ry={r.ry} /> : <path key={i} d={ringPath(r.rx, r.ry, layout.shape, cy)} />,
+            )}
           </svg>
           {host ? (
             item(host, true, null)
@@ -434,7 +442,7 @@ export function OrbitRings({
         </div>
       )}
       <div className="orbit3d__tools">
-        <OrbitModeSwitch />
+        <OrbitModeSwitch compact={compact} />
         <div className="orbit-modes" role="group" aria-label="Zoom">
           <button type="button" className="orbit3d__tool" title="Afastar" aria-label="Afastar" disabled={!zoomed} onClick={() => zoomAt(1 / 1.4)}>
             <ZoomOut size={13} />
@@ -443,7 +451,13 @@ export function OrbitRings({
             <ZoomIn size={13} />
           </button>
           {zoomed && (
-            <button type="button" className="orbit3d__tool" title="Mostrar todos (ou dois cliques no fundo)" aria-label="Mostrar todos" onClick={() => apply({ s: 1, x: 0, y: 0 })}>
+            <button
+              type="button"
+              className="orbit3d__tool"
+              title="Mostrar todos (ou dois cliques no fundo)"
+              aria-label="Mostrar todos"
+              onClick={() => apply({ s: 1, x: 0, y: 0 })}
+            >
               <Maximize size={13} />
             </button>
           )}

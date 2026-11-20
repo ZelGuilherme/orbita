@@ -1117,3 +1117,15 @@
   margin: 4px 2px;
   background: var(--line-2);
 }
+
+/* minimizar a faixa de planetas embaixo da live */
+.orbit3d__tool.orbit-min {
+  border-color: rgba(139, 92, 246, 0.5);
+  color: var(--text);
+}
+
+/* tela cheia da live junto com a faixa de planetas */
+.stage-featured:fullscreen {
+  padding: 8px;
+  background: var(--bg-0);
+}

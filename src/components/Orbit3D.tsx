@@ -177,7 +177,7 @@ export default function Orbit3D({
     <div className={cx('orbit3d', compact && 'orbit3d--compact')} ref={host}>
       <div className="orbit3d__labels">{sceneMembers.map(labelFor)}</div>
       <div className="orbit3d__tools">
-        <OrbitModeSwitch />
+        <OrbitModeSwitch compact={compact} />
         <button type="button" className="orbit3d__tool" title="Voltar a câmera para o ângulo padrão (ou dois cliques no fundo)" aria-label="Centralizar a câmera" onClick={() => scene.current?.resetCamera()}>
           <RotateCcw size={14} />
         </button>

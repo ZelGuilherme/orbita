@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import {
-  ChevronDown,
   ChevronUp,
   Crown,
   Eye,
@@ -132,9 +131,6 @@ export function CallView() {
             ) : (
               <div className="orbit-strip">
                 <OrbitView members={members} room={room} onPick={pick} compact />
-                <IconButton label="Esconder os planetas" className="orbit-strip__hide" tipPos="left" onClick={() => setOrbitHidden(true)}>
-                  <ChevronDown size={16} />
-                </IconButton>
               </div>
             )}
           </div>
@@ -387,7 +383,7 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
         </div>
       ))}
       <div className="orbit3d__tools">
-        <OrbitModeSwitch />
+        <OrbitModeSwitch compact={compact} />
       </div>
     </div>
   );
@@ -437,7 +433,8 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
 
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    else void ref.current?.requestFullscreen?.().catch(() => {});
+    // a live em destaque vai para a tela cheia junto com a faixa de planetas (que dá para minimizar)
+    else void ((ref.current?.closest('.stage-featured') as HTMLElement | null) ?? ref.current)?.requestFullscreen?.().catch(() => {});
   };
   const pip = () => {
     const video = videoRef.current;

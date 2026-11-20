@@ -454,7 +454,7 @@ async function chamadaCompleta(opened) {
   if (!(await a.page.evaluate(() => !!document.querySelector('.stage-featured .tile--live') && !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d')))) {
     throw new Error('a live não ficou em destaque com a faixa de órbita embaixo');
   }
-  await a.page.getByRole('button', { name: 'Esconder os planetas' }).click();
+  await a.page.getByRole('button', { name: 'Minimizar planetas' }).click();
   await waitFor(a.page, () => !document.querySelector('.orbit-strip') && !!document.querySelector('.orbit-strip__show'));
   await a.page.locator('.orbit-strip__show').click();
   await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d'));

@@ -14,7 +14,7 @@ import {
   REACTIONS,
   RECONNECT_GRACE_MS,
 } from './config';
-import { addToStrokes, allowFx, newFxLimits, validFx, type FxLimits } from './fx';
+import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
 import { keepSignaling, openPeer } from './peer';
 import { sanitizePlanet } from './planet';
 import { validAvatar } from './storage';
@@ -317,7 +317,10 @@ export class Hub {
         if (fx.kind === 'stroke') {
           let strokes = this.drawings.get(streamer.id);
           if (!strokes) this.drawings.set(streamer.id, (strokes = []));
-          if (!addToStrokes(strokes, me.id, fx.id, fx.points)) return;
+          if (!addToStrokes(strokes, me.id, fx.id, fx.points, fx)) return;
+        } else if (fx.kind === 'erase') {
+          const strokes = this.drawings.get(streamer.id);
+          if (!strokes || !eraseStrokes(strokes, fx.points, fx.size, fx.aspect)) return;
         } else if (fx.kind === 'clear') {
           this.drawings.delete(streamer.id);
         }

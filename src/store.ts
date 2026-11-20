@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import type { LiveSurface } from './lib/media';
 import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
-import { loadLiveVolumes, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type Profile, type Settings } from './lib/storage';
+import { loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
 
+export type FxTool = 'laser' | 'pencil' | 'eraser';
 export type SettingsTab = 'perfil' | 'voz' | 'live' | 'atalhos' | 'rede' | 'sobre';
 
 export type Modal =
@@ -83,8 +84,10 @@ export interface AppState {
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
   memberCard: { memberId: string; x: number; y: number } | null;
-  /** Ferramenta sobre a live: laser aponta, lápis desenha. */
-  tool: 'laser' | 'pencil' | null;
+  /** Ferramenta sobre a live: laser aponta, lápis desenha, borracha apaga um pedaço. */
+  tool: FxTool | null;
+  /** Cor, tamanho e estilo do pincel e tamanho da borracha. */
+  pen: PenPrefs;
   /** Largura do chat em px (null = padrão). */
   chatWidth: number | null;
   /** Saiu uma versão nova do Órbita. */
@@ -151,6 +154,7 @@ export const useApp = create<AppState>()(() => ({
   liveVolumes: loadLiveVolumes(),
   chatOpen: loadUiPrefs().chatOpen,
   chatWidth: loadUiPrefs().chatWidth,
+  pen: loadPen(),
   updateReady: false,
   ...roomDefaults(),
 }));

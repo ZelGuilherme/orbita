@@ -1,7 +1,8 @@
 import { COSMIC_NAMES, PLANET_COLORS } from './config';
+import { clampSize, ERASER_SIZE, PEN_SIZE, PEN_STYLES } from './fx';
 import { DEFAULT_KEYBINDS, sanitizeKeybinds, type Keybinds } from './keybinds';
 import { sanitizePlanet, type PlanetStyle } from './planet';
-import type { LiveQuality } from './protocol';
+import type { LiveQuality, PenStyle } from './protocol';
 import { randomId } from './util';
 
 export interface Profile {
@@ -83,6 +84,16 @@ const SETTINGS_KEY = 'orbita.settings.v1';
 const VOLUMES_KEY = 'orbita.volumes.v1';
 const LIVE_VOLUMES_KEY = 'orbita.liveVolumes.v1';
 const UI_KEY = 'orbita.ui.v1';
+const PEN_KEY = 'orbita.pen.v1';
+
+/** Pincel e borracha escolhidos (só deste navegador). */
+export interface PenPrefs {
+  /** null = a cor do meu planeta. */
+  color: string | null;
+  size: number;
+  style: PenStyle;
+  eraserSize: number;
+}
 
 /** Chaves que, mudando em outra aba ou no app instalado, valem também para esta janela. */
 export const SYNCED_KEYS = { profile: PROFILE_KEY, settings: SETTINGS_KEY } as const;
@@ -236,3 +247,15 @@ export function loadUiPrefs(): UiPrefs {
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);
+
+export function loadPen(): PenPrefs {
+  const saved = read<PenPrefs>(PEN_KEY) ?? {};
+  return {
+    color: typeof saved.color === 'string' && /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : null,
+    size: clampSize(saved.size, PEN_SIZE),
+    style: PEN_STYLES.includes(saved.style as PenStyle) ? (saved.style as PenStyle) : 'pen',
+    eraserSize: clampSize(saved.eraserSize, ERASER_SIZE),
+  };
+}
+
+export const savePen = (pen: PenPrefs) => write(PEN_KEY, pen);

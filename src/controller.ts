@@ -1,5 +1,5 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
-import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, newFxLimits, setDrawing, validStrokes } from './lib/fx';
+import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
 import {
   appLikelyInstalled,
@@ -28,7 +28,7 @@ import { mentionsName } from './lib/markdown';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
-import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, Presence, RoomState } from './lib/protocol';
+import type { AdminAction, Attachment, ChatMessage, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { setSoundsEnabled, sfx } from './lib/sounds';
 import { watchForUpdates } from './lib/update';
@@ -44,9 +44,11 @@ import {
   validAvatar,
   type Profile,
   type Settings,
+  savePen,
+  type PenPrefs,
 } from './lib/storage';
 import { copyText, errorMessage, inviteFromHash, inviteLink, parseRoomCode, randomId } from './lib/util';
-import { getApp, resetRoomState, setApp, textChannelOf, toast, voiceChannelOf, type AppState } from './store';
+import { getApp, resetRoomState, setApp, textChannelOf, toast, voiceChannelOf, type AppState, type FxTool } from './store';
 
 /**
  * Cola entre a sessão P2P, a mídia e a interface. Os componentes só chamam estas
@@ -740,7 +742,8 @@ export function toggleLiveMute(memberId: string) {
 function onRemoteFx(from: string, streamerId: string, fx: LiveFx) {
   const s = getApp();
   if (streamerId !== s.meId && !s.watching[streamerId]) return;
-  if (fx.kind === 'stroke') drawStroke(streamerId, from, fx.id, fx.points);
+  if (fx.kind === 'stroke') drawStroke(streamerId, from, fx.id, fx.points, fx);
+  else if (fx.kind === 'erase') eraseDrawing(streamerId, fx.points, fx.size, fx.aspect);
   else if (fx.kind === 'clear') clearDrawing(streamerId);
   else emitFx({ streamerId, from, fx });
 }
@@ -787,7 +790,15 @@ export function hideLaser(streamerId: string) {
   sendFx(streamerId, { kind: 'laser-off' });
 }
 
-let stroke: { streamerId: string; id: string; pending: number[]; timer: number } | null = null;
+let stroke: { streamerId: string; id: string; pending: number[]; timer: number; look: PenLook } | null = null;
+
+const roundPoint = (x: number, y: number) => [Math.round(x * 10_000) / 10_000, Math.round(y * 10_000) / 10_000];
+
+/** Cor, tamanho e estilo do pincel agora (sem cor escolhida, a do meu planeta). */
+function penLook(): PenLook {
+  const s = getApp();
+  return { color: s.pen.color ?? s.profile.color, size: s.pen.size, style: s.pen.style };
+}
 
 function flushStroke() {
   if (!stroke) return;
@@ -795,14 +806,14 @@ function flushStroke() {
   stroke.timer = 0;
   while (stroke.pending.length) {
     const points = stroke.pending.splice(0, 200);
-    sendFx(stroke.streamerId, { kind: 'stroke', id: stroke.id, points });
+    sendFx(stroke.streamerId, { kind: 'stroke', id: stroke.id, points, ...stroke.look });
   }
 }
 
 /** Lápis: começa um traço novo. */
 export function beginStroke(streamerId: string, x: number, y: number) {
   endStroke();
-  stroke = { streamerId, id: randomId(10), pending: [], timer: 0 };
+  stroke = { streamerId, id: randomId(10), pending: [], timer: 0, look: penLook() };
   extendStroke(x, y);
 }
 
@@ -810,8 +821,8 @@ export function beginStroke(streamerId: string, x: number, y: number) {
 export function extendStroke(x: number, y: number) {
   const s = getApp();
   if (!stroke || !s.meId) return;
-  const point = [Math.round(x * 10_000) / 10_000, Math.round(y * 10_000) / 10_000];
-  drawStroke(stroke.streamerId, s.meId, stroke.id, point);
+  const point = roundPoint(x, y);
+  drawStroke(stroke.streamerId, s.meId, stroke.id, point, stroke.look);
   stroke.pending.push(...point);
   if (!stroke.timer) stroke.timer = window.setTimeout(flushStroke, 30);
 }
@@ -821,12 +832,56 @@ export function endStroke() {
   stroke = null;
 }
 
+let erasing: { streamerId: string; aspect: number; size: number; last: number[] | null; sentTail: number[] | null; pending: number[]; timer: number } | null = null;
+
+function flushErase() {
+  if (!erasing) return;
+  clearTimeout(erasing.timer);
+  erasing.timer = 0;
+  while (erasing.pending.length) {
+    // cada pedaço começa no último ponto do anterior: o caminho chega inteiro, sem buracos
+    const chunk = erasing.pending.splice(0, 200);
+    const points = erasing.sentTail ? [...erasing.sentTail, ...chunk] : chunk;
+    erasing.sentTail = chunk.slice(-2);
+    sendFx(erasing.streamerId, { kind: 'erase', points, size: erasing.size, aspect: erasing.aspect });
+  }
+}
+
+/** Borracha: começa a apagar (aspect = largura / altura da imagem da live). */
+export function beginErase(streamerId: string, x: number, y: number, aspect: number) {
+  endErase();
+  erasing = { streamerId, aspect: Math.round(aspect * 1000) / 1000, size: getApp().pen.eraserSize, last: null, sentTail: null, pending: [], timer: 0 };
+  extendErase(x, y);
+}
+
+/** Borracha: mais um ponto do caminho (apaga na hora aqui; vai para a rede a cada 30 ms). */
+export function extendErase(x: number, y: number) {
+  if (!erasing) return;
+  const point = roundPoint(x, y);
+  eraseDrawing(erasing.streamerId, erasing.last ? [...erasing.last, ...point] : point, erasing.size, erasing.aspect);
+  erasing.last = point;
+  erasing.pending.push(...point);
+  if (!erasing.timer) erasing.timer = window.setTimeout(flushErase, 30);
+}
+
+export function endErase() {
+  flushErase();
+  erasing = null;
+}
+
+/** Muda cor, tamanho ou estilo do pincel, ou o tamanho da borracha (fica salvo). */
+export function setPen(patch: Partial<PenPrefs>) {
+  const pen = { ...getApp().pen, ...patch };
+  savePen(pen);
+  setApp({ pen });
+}
+
 /** Apaga todos os desenhos da live (qualquer pessoa pode). */
 export function clearDrawings(streamerId: string) {
   if (sendFx(streamerId, { kind: 'clear' })) clearDrawing(streamerId);
 }
 
-export const setTool = (tool: 'laser' | 'pencil' | null) => setApp((s) => ({ tool: s.tool === tool ? null : tool }));
+export const setTool = (tool: FxTool | null) => setApp((s) => ({ tool: s.tool === tool ? null : tool }));
 
 // ───────────────────────── host ─────────────────────────
 

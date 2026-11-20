@@ -30,8 +30,18 @@ export interface LiveInfo {
   effects: boolean;
 }
 
+/** Estilos do pincel. */
+export type PenStyle = 'pen' | 'marker' | 'neon' | 'dashed' | 'spray';
+
+/** Cor, tamanho e estilo de um traço. O tamanho é a espessura em pixels numa imagem de 1080 de altura. */
+export interface PenLook {
+  color: string;
+  size: number;
+  style: PenStyle;
+}
+
 /** Um traço do lápis: pontos [x, y, x, y, …] de 0 a 1 dentro da imagem da live. */
-export interface FxStroke {
+export interface FxStroke extends PenLook {
   id: string;
   from: string;
   points: number[];
@@ -44,7 +54,9 @@ export interface FxStroke {
 export type LiveFx =
   | { kind: 'laser'; x: number; y: number }
   | { kind: 'laser-off' }
-  | { kind: 'stroke'; id: string; points: number[] }
+  | ({ kind: 'stroke'; id: string; points: number[] } & PenLook)
+  /** Borracha: o caminho dela (mesma escala dos traços), o diâmetro e o formato da imagem (largura/altura). */
+  | { kind: 'erase'; points: number[]; size: number; aspect: number }
   | { kind: 'clear' };
 
 /** Estado que cada participante publica sobre si mesmo. */

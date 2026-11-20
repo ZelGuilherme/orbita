@@ -25,6 +25,11 @@
   cursor: crosshair;
 }
 
+.fx-stage.is-eraser {
+  pointer-events: auto;
+  cursor: none;
+}
+
 .fx-stage.is-pencil {
   pointer-events: auto;
   cursor:
@@ -42,13 +47,44 @@
   overflow: visible;
 }
 
-.fx-draw path {
+.fx-strokes path {
   fill: none;
-  stroke-width: 4px;
   stroke-linecap: round;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+}
+
+.fx-pen {
   filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.7));
+}
+
+.fx-marker {
+  stroke-opacity: 0.42;
+  stroke-linecap: square;
+}
+
+.fx-neon {
+  --c: #f43f5e;
+  filter: drop-shadow(0 0 3px var(--c)) drop-shadow(0 0 9px var(--c));
+}
+
+.fx-spray {
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+}
+
+/* borracha: um círculo no lugar do cursor */
+.fx-eraser {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .fx-trails line {
@@ -148,6 +184,126 @@
 .fx-bar__btn.is-on {
   background: var(--live);
   color: #fff;
+}
+
+.fx-bar__btn:disabled {
+  opacity: 0.4;
+}
+
+/* cor atual do pincel, no canto do botão do lápis */
+.fx-bar__color {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(5, 6, 15, 0.9);
+}
+
+/* opções do pincel e da borracha (acima da barra) */
+.fx-opts {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: max-content;
+  max-width: min(340px, 92cqw);
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(5, 6, 15, 0.9);
+  border: 1px solid var(--line-2);
+  backdrop-filter: blur(6px);
+}
+
+.fx-opts__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fx-swatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+
+.fx-swatch.is-on {
+  box-shadow:
+    0 0 0 2px rgba(5, 6, 15, 1),
+    0 0 0 4px #fff;
+}
+
+.fx-swatch--custom {
+  overflow: hidden;
+  background: conic-gradient(#f43f5e, #facc15, #22c55e, #22d3ee, #3b82f6, #a855f7, #f43f5e);
+}
+
+.fx-swatch--custom input {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fx-swatch--planet::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+}
+
+.fx-style {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--bg-3);
+}
+
+.fx-style:hover {
+  background: var(--bg-4);
+}
+
+.fx-style.is-on {
+  background: var(--bg-4);
+  box-shadow: inset 0 0 0 2px var(--live);
+}
+
+.fx-style__preview path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fx-opts__size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.fx-opts__size input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.fx-opts__dot {
+  flex: none;
+  border-radius: 50%;
 }
 
 /* dica da janela flutuante para quem transmite */

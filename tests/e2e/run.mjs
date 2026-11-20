@@ -268,29 +268,59 @@ async function chamadaCompleta(opened) {
     });
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Laser' }).click();
   const stage = await a.page.locator('.tile--live .fx-stage').boundingBox();
-  await a.page.mouse.move(stage.x + stage.width * 0.25, stage.y + stage.height * 0.5);
-  await a.page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.4, { steps: 5 });
+  const at = (x, y) => [stage.x + stage.width * x, stage.y + stage.height * y];
+  // sem apertar o botão do mouse, o laser não aparece
+  await a.page.mouse.move(...at(0.25, 0.5));
+  await a.page.mouse.move(...at(0.3, 0.45), { steps: 5 });
+  await b.page.waitForTimeout(600);
+  if (await b.page.evaluate(() => !!document.querySelector('.tile--live .fx-laser'))) throw new Error('o laser apareceu sem apertar o botão');
+  await a.page.mouse.down();
+  await a.page.mouse.move(...at(0.3, 0.4), { steps: 5 });
   await waitFor(b.page, () => !!document.querySelector('.tile--live .fx-laser'), null, 10_000);
   await b.page.waitForTimeout(400);
   const laserAt = await laserOf(b.page);
   if (!laserAt || Math.abs(laserAt.x - 30) > 1.5 || Math.abs(laserAt.y - 40) > 1.5) throw new Error(`laser fora do lugar: ${JSON.stringify(laserAt)}`);
-  log('  laser ok, na tela de quem transmite em', laserAt);
-
-  await a.page.locator('.fx-bar').getByRole('button', { name: 'Lápis' }).click();
-  await a.page.mouse.move(stage.x + stage.width * 0.2, stage.y + stage.height * 0.2);
-  await a.page.mouse.down();
-  await a.page.mouse.move(stage.x + stage.width * 0.6, stage.y + stage.height * 0.7, { steps: 12 });
   await a.page.mouse.up();
-  await waitFor(b.page, () => (document.querySelector('.tile--live .fx-draw path')?.getAttribute('d')?.split('L').length ?? 0) > 8, null, 10_000);
-  // quem começa a assistir depois recebe o desenho que já está lá
+  await waitFor(b.page, () => !document.querySelector('.tile--live .fx-laser'), null, 10_000);
+  log('  laser ok: só com o botão apertado, na tela de quem transmite em', laserAt);
+
+  // pincel: cor, estilo e tamanho escolhidos aparecem para os outros
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Lápis' }).click();
+  await a.page.locator('.fx-opts').getByRole('button', { name: 'Cor #22c55e' }).click();
+  await a.page.locator('.fx-opts').getByRole('button', { name: 'Neon' }).click();
+  await a.page.locator('.fx-opts input[type=range]').fill('20');
+  await a.page.mouse.move(...at(0.2, 0.2));
+  await a.page.mouse.down();
+  await a.page.mouse.move(...at(0.6, 0.7), { steps: 16 });
+  await a.page.mouse.up();
+  await waitFor(
+    b.page,
+    () => {
+      const g = document.querySelector('.tile--live .fx-strokes .fx-neon');
+      const path = g?.querySelector('path');
+      return path?.getAttribute('stroke') === '#22c55e' && (path.getAttribute('d')?.split('L').length ?? 0) > 8;
+    },
+    null,
+    10_000,
+  );
+  log('  pincel ok: cor, estilo neon e tamanho chegaram para quem transmite');
+
+  // borracha: corta o traço no meio, que vira dois pedaços (para todo mundo)
+  await a.page.locator('.fx-bar').getByRole('button', { name: 'Borracha' }).click();
+  await a.page.mouse.move(...at(0.3, 0.55));
+  await a.page.mouse.down();
+  await a.page.mouse.move(...at(0.5, 0.35), { steps: 8 });
+  await a.page.mouse.up();
+  for (const u of [a, b]) await waitFor(u.page, () => document.querySelectorAll('.tile--live .fx-strokes .fx-neon').length === 2, null, 10_000);
+  // quem começa a assistir depois recebe o desenho como ficou (já cortado)
   await c.page.getByRole('button', { name: /Assistir live/ }).first().click();
-  await waitFor(c.page, () => !!document.querySelector('.tile--live .fx-draw path'), null, 20_000);
-  log('  lápis ok (quem transmite vê, e quem chegou depois também)');
+  await waitFor(c.page, () => document.querySelectorAll('.tile--live .fx-strokes .fx-neon').length === 2, null, 20_000);
+  log('  borracha ok: o traço virou dois pedaços para todos, inclusive para quem chegou depois');
   await a.page.mouse.move(5, 5);
   await shot(b.page, 'live-lapis-streamer');
   await a.page.locator('.tile--live').first().hover();
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Apagar tudo' }).click();
-  for (const u of [a, b, c]) await waitFor(u.page, () => !document.querySelector('.tile--live .fx-draw path'), null, 10_000);
+  for (const u of [a, b, c]) await waitFor(u.page, () => !document.querySelector('.tile--live .fx-strokes path'), null, 10_000);
   log('  apagar tudo ok para todo mundo');
   await c.page.getByRole('button', { name: 'Parar de assistir' }).click().catch(() => {});
 

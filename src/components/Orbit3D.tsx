@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Crown, MicOff, RotateCcw } from 'lucide-react';
 import { setMyOrbit } from '../controller';
-import { defaultOrbit } from '../lib/orbitPath';
+import { randomOrbit } from '../lib/orbitPath';
 import { DEFAULT_PLANET } from '../lib/planet';
 import { textureSeed } from '../lib/noise';
 import type { Member, RoomState } from '../lib/protocol';
@@ -77,8 +77,8 @@ export default function Orbit3D({
     });
     if (center) list.push({ ...base(center), orbit: null, host: true });
     else list.push({ id: '__sala__', name: room.name, color: hashColor(room.code), look: DEFAULT_PLANET, seed: textureSeed(room.code), orbit: null, host: false, me: false, speaking: false, live: false, video: null, mirror: false, pickable: false });
-    satellites.forEach((m, i) => {
-      const orbit = (m.id === meId ? myOrbit : m.orbit) ?? defaultOrbit(i, satellites.length);
+    satellites.forEach((m) => {
+      const orbit = (m.id === meId ? myOrbit : m.orbit) ?? randomOrbit(m.id);
       list.push({ ...base(m), orbit, host: false });
     });
     return list;

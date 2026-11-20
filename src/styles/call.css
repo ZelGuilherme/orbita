@@ -1104,3 +1104,16 @@
     gap: 6px;
   }
 }
+
+/* microfone e áudio dentro da live/câmera */
+.tile__tools .tile__toggle.is-off {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.22);
+}
+
+.tile__tools-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: var(--line-2);
+}

@@ -514,6 +514,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
 
       {live && (
         <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <QuickToggles />
           <span className="tile__viewers" title="Espectadores">
             <Eye size={13} /> {live.viewers}
           </span>
@@ -557,6 +558,7 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
 
       {spec.kind === 'cam' && (
         <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <QuickToggles />
           <IconButton label="Tela cheia" tipPos="bottom" onClick={fullscreen}>
             <Maximize size={16} />
           </IconButton>
@@ -612,6 +614,35 @@ function LiveVolume({ member }: { member: Member }) {
       />
       <span className="live-volume__value">{value}%</span>
     </div>
+  );
+}
+
+/**
+ * Microfone e áudio direto na live (ou câmera) em destaque: dá para mutar e desmutar sem sair
+ * da tela cheia.
+ */
+function QuickToggles() {
+  const inCall = useApp((s) => s.inCall);
+  const micOn = useApp((s) => s.micOn);
+  const deafened = useApp((s) => s.deafened);
+  const serverMuted = useApp((s) => !!s.room?.members.find((m) => m.id === s.meId)?.serverMuted);
+  if (!inCall) return null;
+  const muted = !micOn || deafened || serverMuted;
+  return (
+    <>
+      <IconButton
+        label={serverMuted ? 'Silenciado pelo host' : muted ? 'Ativar microfone' : 'Silenciar microfone'}
+        tipPos="bottom"
+        className={cx('tile__toggle', muted && 'is-off')}
+        onClick={toggleMic}
+      >
+        {muted ? <MicOff size={16} /> : <Mic size={16} />}
+      </IconButton>
+      <IconButton label={deafened ? 'Ativar áudio' : 'Ensurdecer'} tipPos="bottom" className={cx('tile__toggle', deafened && 'is-off')} onClick={toggleDeafen}>
+        {deafened ? <HeadphoneOff size={16} /> : <Headphones size={16} />}
+      </IconButton>
+      <span className="tile__tools-sep" aria-hidden="true" />
+    </>
   );
 }
 

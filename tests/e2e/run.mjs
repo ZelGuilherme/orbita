@@ -302,6 +302,13 @@ async function chamadaCompleta(opened) {
   }
   log('  malha de voz completa');
 
+  // quem entra ganha uma órbita sorteada em volta do host (diferente para cada um)
+  const orbits = await a.page.evaluate(() => window.__orbita.getApp().room.members.filter((m) => m.name !== 'Ana').map((m) => m.orbit));
+  if (orbits.length !== 2 || orbits.some((o) => !o || o.radius < 2.6 || o.radius > 6.4) || JSON.stringify(orbits[0]) === JSON.stringify(orbits[1])) {
+    throw new Error(`órbitas sorteadas estranhas: ${JSON.stringify(orbits)}`);
+  }
+  log('  órbitas sorteadas ao entrar: raios', orbits.map((o) => o.radius.toFixed(1)).join(' e '));
+
   // órbita em 3D: a cena desenha; o Bruno arrasta o próprio planeta e a órbita nova chega para a Ana
   await waitFor(b.page, () => !!window.__orbitaScene && !!document.querySelector('.orbit3d__canvas'), null, 30_000);
   await b.page.waitForTimeout(1_500);
@@ -452,6 +459,18 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.orbit-strip__show').click();
   await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d'));
   log('  live em destaque com a faixa de planetas (esconder e mostrar ok)');
+  // microfone e áudio direto na live (funcionam em tela cheia)
+  const liveTools = a.page.locator('.stage-featured .tile--live .tile__tools');
+  await a.page.locator('.stage-featured .tile--live').hover();
+  const micWas = await a.page.evaluate(() => window.__orbita.getApp().micOn);
+  await liveTools.getByRole('button', { name: /microfone/ }).click();
+  await waitFor(a.page, (w) => window.__orbita.getApp().micOn !== w, micWas);
+  await liveTools.getByRole('button', { name: /Ensurdecer/ }).click();
+  await waitFor(a.page, () => window.__orbita.getApp().deafened === true);
+  await liveTools.getByRole('button', { name: /Ativar áudio/ }).click();
+  await waitFor(a.page, () => window.__orbita.getApp().deafened === false);
+  if ((await a.page.evaluate(() => window.__orbita.getApp().micOn)) !== micWas) await liveTools.getByRole('button', { name: /microfone/ }).click();
+  log('  microfone e áudio funcionam direto na live (sem sair da tela cheia)');
 
   // volume da live, separado do volume da voz
   await a.page.locator('.tile--live').first().hover();
@@ -713,8 +732,8 @@ async function passarCoroa(opened) {
 
   await b.page.getByRole('button', { name: 'Pessoas na órbita' }).click();
   await b.page.locator('.people__room').click();
-  await b.page.getByRole('menuitem', { name: /Sair ou encerrar/ }).click();
-  await b.page.getByRole('button', { name: /Passar a coroa e sair/ }).click();
+  await b.page.getByRole('menuitem', { name: /Sair da órbita/ }).click();
+  await b.page.getByRole('button', { name: /^Sair$/ }).click();
   await waitFor(b.page, () => window.__orbita.getApp().phase === 'landing', null, 20_000);
   await waitFor(a.page, () => {
     const s = window.__orbita.getApp();
@@ -723,7 +742,7 @@ async function passarCoroa(opened) {
   log('  Bruno saiu passando a coroa; Ana é host de novo');
 
   await a.page.locator('.people__room').click();
-  await a.page.getByRole('menuitem', { name: /Sair ou encerrar/ }).click();
+  await a.page.getByRole('menuitem', { name: /Sair da órbita/ }).click();
   await a.page.getByRole('button', { name: /Encerrar e sair/ }).click();
   await waitFor(a.page, () => window.__orbita.getApp().phase === 'landing', null, 15_000);
   log('  sala encerrada');
@@ -892,6 +911,14 @@ async function orbitaFixa(opened) {
   await waitFor(a.page, () => window.__orbita.getApp().isHost === true, null, 40_000);
   await waitFor(b.page, () => window.__orbita.getApp().net === 'connected' && !window.__orbita.getApp().isHost, null, 40_000);
   log('  a criadora chegou e recebeu a coroa de volta; Bruno continuou na sala');
+
+  // a host sai da chamada: a coroa passa para quem ficou nela e a chamada continua
+  await waitFor(a.page, () => window.__orbita.getApp().inCall && window.__orbita.getApp().net === 'connected', null, 30_000);
+  await waitFor(b.page, () => window.__orbita.getApp().inCall && window.__orbita.getApp().net === 'connected', null, 30_000);
+  await a.page.getByRole('button', { name: 'Sair da chamada' }).click();
+  await waitFor(b.page, () => window.__orbita.getApp().isHost === true && window.__orbita.getApp().inCall, null, 40_000);
+  await waitFor(a.page, () => !window.__orbita.getApp().isHost && window.__orbita.getApp().net === 'connected', null, 40_000);
+  log('  a host saiu da chamada: Bruno virou host e a chamada continuou');
 }
 
 // ───────────────────────── execução ─────────────────────────

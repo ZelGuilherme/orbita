@@ -28,7 +28,7 @@ import {
   type KeyAction,
 } from './lib/keybinds';
 import { mentionsName } from './lib/markdown';
-import type { OrbitStyle } from './lib/orbitPath';
+import { randomOrbit, type OrbitStyle } from './lib/orbitPath';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
 import { PeerOpenError } from './lib/peer';
 import { clampVolume, resumePlayback } from './lib/playback';
@@ -426,7 +426,11 @@ async function enterRoom(mode: 'create' | 'join' | 'reopen', arg: string, fixed 
     landingError: null,
     connectingText: mode === 'create' ? 'Criando sua órbita…' : mode === 'reopen' ? `Abrindo a órbita ${saved?.name ?? arg}…` : `Entrando na órbita ${arg}…`,
   });
-  const identity = { id: `${profile.id}.${randomId(6)}`, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet, orbit: profile.orbit };
+  const memberId = `${profile.id}.${randomId(6)}`;
+  // cada entrada sorteia uma órbita nova em volta do host (arrastando o planeta, dá para mudar)
+  const orbit = randomOrbit(memberId);
+  updateProfile({ orbit });
+  const identity = { id: memberId, name: profile.name, color: profile.color, avatar: profile.avatar, planet: profile.planet, orbit };
   const handlers = makeHandlers(identity.id);
   try {
     let created: Session;
@@ -539,7 +543,19 @@ export function requestLeave() {
   if (!session) return;
   const others = s.room?.members.filter((m) => m.id !== s.meId && !m.reconnecting) ?? [];
   if (s.isHost && others.length) {
-    setApp({ modal: { kind: 'leave' } });
+    // a coroa passa sozinha para quem está há mais tempo (de preferência quem está na chamada)
+    const callId = voiceChannelOf(s.room)?.id;
+    const next = [...others].sort((a, b) => Number(b.voiceChannelId === callId) - Number(a.voiceChannelId === callId) || a.joinedAt - b.joinedAt)[0];
+    setApp({
+      modal: {
+        kind: 'confirm',
+        title: 'Sair da órbita?',
+        body: `A sala e a chamada continuam: ${next.name} vira o host. (Para fechar a sala para todo mundo, use “Encerrar a órbita” no menu da sala.)`,
+        confirm: 'Sair',
+        danger: true,
+        action: () => session?.transferAndLeave(next.id),
+      },
+    });
   } else if (s.isHost) {
     setApp({
       modal: {
@@ -566,6 +582,20 @@ export function requestLeave() {
 }
 
 export const transferAndLeave = (memberId: string) => session?.transferAndLeave(memberId);
+
+/** Host: fechar a sala para todo mundo (com confirmação). */
+export function requestEnd() {
+  setApp({
+    modal: {
+      kind: 'confirm',
+      title: 'Encerrar a órbita para todos?',
+      body: 'Todo mundo sai, a chamada acaba e o convite para de funcionar (numa órbita fixa, dá para reabrir depois).',
+      confirm: 'Encerrar para todos',
+      danger: true,
+      action: () => session?.endForAll(),
+    },
+  });
+}
 export const endRoom = () => session?.endForAll();
 
 export async function copyInvite() {
@@ -762,7 +792,14 @@ export async function joinCall() {
 }
 
 export function leaveCall(silent = false) {
-  if (!getApp().inCall) return;
+  const s = getApp();
+  if (!s.inCall) return;
+  // o host saindo da chamada: a coroa passa para quem está nela (a órbita não fica sem centro)
+  if (s.isHost && s.room) {
+    const callId = voiceChannelOf(s.room)?.id;
+    const next = s.room.members.filter((m) => m.id !== s.meId && !m.reconnecting && callId && m.voiceChannelId === callId).sort((a, b) => a.joinedAt - b.joinedAt)[0];
+    if (next) admin({ kind: 'transfer', memberId: next.id });
+  }
   stopCapture(false);
   media?.leaveVoice();
   setApp({ inCall: false, cameraOn: false, live: null, liveSurface: null, localCamera: null, localScreen: null, floating: false, pttDown: false });
@@ -1738,13 +1775,7 @@ export function initController() {
   window.addEventListener('message', onExtensionMessage);
   // a extensão responde se estiver instalada
   window.postMessage({ source: 'orbita-app', action: 'ping' }, location.origin);
-  window.addEventListener('beforeunload', (e) => {
-    const s = getApp();
-    if (session && s.isHost && (s.room?.members.length ?? 0) > 1) {
-      e.preventDefault();
-      e.returnValue = '';
-    }
-  });
+  // fechar a aba sendo host não pergunta nada: a coroa passa para o próximo e a sala continua
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && chatVisible() && getApp().unread) setChatOpen(true);
   });

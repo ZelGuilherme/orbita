@@ -13,6 +13,7 @@ import {
   Lock,
   LockOpen,
   LogOut,
+  Power,
   Mic,
   MicOff,
   PanelLeftClose,
@@ -22,7 +23,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { copyInvite, openLive, requestLeave, setFixed, setListed, setLocked, setPeopleHidden, setPeopleWidth, toggleDeafen, toggleMic } from '../controller';
+import { copyInvite, openLive, requestEnd, requestLeave, setFixed, setListed, setLocked, setPeopleHidden, setPeopleWidth, toggleDeafen, toggleMic } from '../controller';
 import { otherBuild } from '../lib/build';
 import type { Member } from '../lib/protocol';
 import { getApp, setApp, useApp, voiceChannelOf } from '../store';
@@ -188,8 +189,13 @@ function RoomMenu({ onClose }: { onClose: () => void }) {
         </button>
         <div className="dropdown__sep" />
         <button type="button" role="menuitem" className="danger" onClick={run(requestLeave)}>
-          <LogOut size={16} /> {isHost ? 'Sair ou encerrar a órbita' : 'Sair da órbita'}
+          <LogOut size={16} /> Sair da órbita
         </button>
+        {isHost && (
+          <button type="button" role="menuitem" className="danger" onClick={run(requestEnd)}>
+            <Power size={16} /> Encerrar a órbita para todos
+          </button>
+        )}
       </div>
     </>
   );

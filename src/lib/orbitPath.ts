@@ -46,21 +46,29 @@ export function sanitizeOrbit(value: unknown): OrbitStyle | undefined {
   };
 }
 
-/** Órbita de quem nunca arrastou o planeta: anéis como antes, todos espalhados pela volta. */
-export function defaultOrbit(index: number, count: number): OrbitStyle {
-  const twoRings = count > 6;
-  const inner = twoRings ? Math.ceil(count * 0.4) : count;
-  const ring = index < inner ? 0 : 1;
-  const k = ring === 0 ? index : index - inner;
-  const n = Math.max(1, ring === 0 ? inner : count - inner);
-  return {
-    radius: ring === 0 ? (twoRings ? 3.2 : 3.8) : 5.4,
-    incl: 0,
-    node: 0,
-    speed: ring === 0 ? 0.14 : 0.09,
-    dir: ring === 0 ? 1 : -1,
-    phase: (k / n) * TAU + (ring ? 0.4 : 0),
+/**
+ * Órbita sorteada para quem entra: distância, inclinação, direção, velocidade, sentido e ponto
+ * de partida. A semente é o ID da pessoa nesta sessão, então todo mundo calcula a mesma.
+ */
+export function randomOrbit(id: string): OrbitStyle {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  let a = h >>> 0;
+  const rand = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  return sanitizeOrbit({
+    radius: 2.7 + rand() * 3.6,
+    incl: (rand() * 2 - 1) * 28,
+    node: rand() * 360,
+    speed: 0.06 + rand() * 0.18,
+    dir: rand() < 0.5 ? 1 : -1,
+    phase: rand() * TAU,
+  })!;
 }
 
 /** Relógio comum, em segundos. */

@@ -116,6 +116,8 @@ export interface AppState {
   /** Lista de órbitas abertas (do ponto de encontro). */
   lobbyRooms: Listing[];
   lobbyOnline: boolean;
+  /** Versão da extensão de atalhos, se estiver instalada. */
+  extension: string | null;
   /** Meu pedido para entrar numa órbita da lista. */
   knocking: { listingId: string; roomName: string; knockId?: string; accepted?: boolean } | null;
   /** (host) Pedidos para entrar na minha órbita. */
@@ -192,6 +194,7 @@ export const useApp = create<AppState>()(() => ({
   updateReady: false,
   lobbyRooms: [],
   lobbyOnline: false,
+  extension: null,
   knocking: null,
   ...roomDefaults(),
 }));

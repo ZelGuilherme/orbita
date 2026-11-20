@@ -5,7 +5,8 @@
 // Sobe o Vite em modo dev, abre várias pessoas no Edge/Chrome instalado (com câmera e
 // microfone falsos) e usa o servidor público do PeerJS. Capturas vão para test-results/.
 // Variáveis: E2E_BROWSER=chrome|msedge, E2E_HEADED=1 para ver as janelas.
-import { mkdirSync, statSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -618,6 +619,57 @@ async function saguao(opened) {
   log('  Ana (host e ponto de encontro) saiu: a lista voltou com o Bruno de host');
 }
 
+/** Extensão de atalhos carregada no navegador: o atalho chega na página e liga/desliga o microfone. */
+async function extensao(opened) {
+  // cópia da extensão apontando para o servidor de teste
+  const dir = mkdtempSync(join(tmpdir(), 'orbita-ext-'));
+  const profile = mkdtempSync(join(tmpdir(), 'orbita-prof-'));
+  cpSync(join(root, 'extension'), dir, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+  const origin = `${new URL(BASE).origin}/*`;
+  manifest.host_permissions = [origin];
+  manifest.content_scripts[0].matches = [origin];
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: CHANNEL,
+    headless: !process.env.E2E_HEADED,
+    viewport: { width: 1280, height: 800 },
+    permissions: ['microphone', 'camera'],
+    args: [
+      `--disable-extensions-except=${dir}`,
+      `--load-extension=${dir}`,
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required',
+      '--mute-audio',
+    ],
+  });
+  opened.push({ close: async () => { await context.close(); rmSync(dir, { recursive: true, force: true }); rmSync(profile, { recursive: true, force: true }); } });
+  await context.addInitScript((lobby) => localStorage.setItem('orbita.lobbyId', lobby), LOBBY);
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker', { timeout: 20_000 }));
+  const page = context.pages()[0] ?? (await context.newPage());
+  page.on('pageerror', (err) => console.log('        [extensão ERRO]', err.message));
+  await page.goto(BASE);
+  await waitFor(page, () => !!window.__orbita?.getApp().extension, null, 15_000);
+  log('  a página reconheceu a extensão (versão', await page.evaluate(() => window.__orbita.getApp().extension), ')');
+  await page.getByRole('button', { name: /Criar e virar host/ }).click();
+  await waitFor(page, () => window.__orbita.getApp().inCall, null, 30_000);
+  await page.keyboard.press('Escape');
+  const before = await page.evaluate(() => window.__orbita.getApp().micOn);
+  // o mesmo caminho do atalho: o service worker manda para a aba do Órbita
+  const run = (command) =>
+    worker.evaluate(async (cmd) => {
+      const tabs = await chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts[0].matches });
+      const reply = await chrome.tabs.sendMessage(tabs[0].id, { orbita: cmd });
+      return !!reply?.handled;
+    }, command);
+  if (!(await run('microfone'))) throw new Error('a página não cuidou do atalho do microfone');
+  await waitFor(page, (b) => window.__orbita.getApp().micOn !== b, before);
+  await run('ensurdecer');
+  await waitFor(page, () => window.__orbita.getApp().deafened === true);
+  log('  atalhos da extensão ok: microfone e ensurdecer mudaram na página');
+}
+
 // ───────────────────────── execução ─────────────────────────
 
 let failed = false;
@@ -625,6 +677,7 @@ for (const [name, scenario] of [
   ['chamada completa + queda do host', chamadaCompleta],
   ['passar a coroa + celular', passarCoroa],
   ['lista de órbitas (saguão)', saguao],
+  ['extensão de atalhos', extensao],
 ]) {
   // E2E_ONLY=trecho roda só os cenários cujo nome contém o trecho
   if (process.env.E2E_ONLY && !name.includes(process.env.E2E_ONLY)) continue;

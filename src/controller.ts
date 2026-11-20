@@ -1473,6 +1473,39 @@ function onMouseUp(e: MouseEvent) {
   if (binds.pushToTalk && isMouseCombo(binds.pushToTalk) && mainKey(binds.pushToTalk) === mainKey(combo)) setPushToTalk(false);
 }
 
+// ───────────────────────── extensão de atalhos ─────────────────────────
+
+/** Atalho vindo da extensão (funciona com o navegador em segundo plano). Devolve se cuidou dele. */
+function runExtensionAction(action: string): boolean {
+  const s = getApp();
+  if (!s.inCall) return false;
+  switch (action) {
+    case 'microfone':
+      toggleMic();
+      return true;
+    case 'ensurdecer':
+      toggleDeafen();
+      return true;
+    case 'clipe':
+      void saveClip();
+      return true;
+    default:
+      return false;
+  }
+}
+
+function onExtensionMessage(e: MessageEvent) {
+  if (e.source !== window || e.origin !== location.origin) return;
+  const data = e.data as { source?: unknown; action?: unknown; id?: unknown; version?: unknown } | null;
+  if (!data || data.source !== 'orbita-extension' || typeof data.action !== 'string') return;
+  if (data.action === 'hello') {
+    setApp({ extension: typeof data.version === 'string' ? data.version.slice(0, 20) : '1' });
+    return;
+  }
+  const handled = runExtensionAction(data.action);
+  window.postMessage({ source: 'orbita-app', id: data.id, handled }, location.origin);
+}
+
 // ───────────────────────── app instalado ─────────────────────────
 
 async function handOff(code: string) {
@@ -1574,6 +1607,9 @@ export function initController() {
     lobby?.stop();
   });
   startLobby();
+  window.addEventListener('message', onExtensionMessage);
+  // a extensão responde se estiver instalada
+  window.postMessage({ source: 'orbita-app', action: 'ping' }, location.origin);
   window.addEventListener('beforeunload', (e) => {
     const s = getApp();
     if (session && s.isHost && (s.room?.members.length ?? 0) > 1) {

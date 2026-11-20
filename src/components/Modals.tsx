@@ -22,6 +22,7 @@ import {
   UserPlus,
   Wifi,
   X,
+  Puzzle,
 } from 'lucide-react';
 import {
   copyInvite,
@@ -876,6 +877,57 @@ function KeybindsTab() {
           <RefreshCw size={15} /> Restaurar padrões
         </button>
       </div>
+      <ExtensionHelp />
+    </>
+  );
+}
+
+/** Extensão de atalhos: funciona com o navegador minimizado ou em outro programa. */
+function ExtensionHelp() {
+  const version = useApp((s) => s.extension);
+  const browser = /Edg\//.test(navigator.userAgent) ? 'edge' : (navigator as Navigator & { brave?: unknown }).brave ? 'brave' : 'chrome';
+  return (
+    <>
+      <h4 className="settings__subtitle">Atalhos em segundo plano (extensão)</h4>
+      <p className="muted">
+        O navegador só deixa o Órbita ouvir o teclado com a janela dele em foco. Com a extensão, estes atalhos funcionam mesmo jogando ou com o navegador
+        minimizado:
+      </p>
+      <div className="ext-keys">
+        <span>
+          <Keys combo="Ctrl+Shift+Digit1" /> abrir o Órbita
+        </span>
+        <span>
+          <Keys combo="Ctrl+Shift+Digit2" /> microfone
+        </span>
+        <span>
+          <Keys combo="Ctrl+Shift+Digit3" /> ensurdecer
+        </span>
+        <span>
+          <Keys combo="Ctrl+Shift+Digit4" /> clipe
+        </span>
+      </div>
+      {version ? (
+        <p className="notice">
+          <Puzzle size={16} /> Extensão instalada (versão {version}). Para trocar as teclas, abra <code>{browser}://extensions/shortcuts</code>.
+        </p>
+      ) : (
+        <>
+          <a className="btn btn--primary" href="./orbita-atalhos.zip" download="orbita-atalhos.zip">
+            <Download size={15} /> Baixar a extensão
+          </a>
+          <ol className="ext-steps">
+            <li>Descompacte o arquivo baixado (fica uma pasta “orbita-atalhos”).</li>
+            <li>
+              Abra <code>{browser}://extensions</code> numa aba nova.
+            </li>
+            <li>Ligue o “Modo do desenvolvedor” (no canto da página).</li>
+            <li>Clique em “Carregar sem compactação” e escolha a pasta “orbita-atalhos”.</li>
+            <li>Recarregue o Órbita. Os atalhos acima já funcionam; dá para trocar as teclas em <code>{browser}://extensions/shortcuts</code>.</li>
+          </ol>
+          <p className="muted small">A extensão é leve: só acorda quando você aperta um dos atalhos e só tem acesso ao site do Órbita.</p>
+        </>
+      )}
     </>
   );
 }

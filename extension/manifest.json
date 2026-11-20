@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Órbita — atalhos",
+  "short_name": "Órbita",
+  "version": "1.0.0",
+  "description": "Atalhos do Órbita que funcionam com o navegador em segundo plano: abrir, microfone, ensurdecer e clipe.",
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": ["https://zelguilherme.github.io/orbita/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://zelguilherme.github.io/orbita/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "abrir": {
+      "suggested_key": { "default": "Ctrl+Shift+1" },
+      "description": "Abrir o Órbita",
+      "global": true
+    },
+    "microfone": {
+      "suggested_key": { "default": "Ctrl+Shift+2" },
+      "description": "Ligar/desligar o microfone",
+      "global": true
+    },
+    "ensurdecer": {
+      "suggested_key": { "default": "Ctrl+Shift+3" },
+      "description": "Ensurdecer / voltar a ouvir",
+      "global": true
+    },
+    "clipe": {
+      "suggested_key": { "default": "Ctrl+Shift+4" },
+      "description": "Salvar clipe do último minuto",
+      "global": true
+    }
+  }
+}

@@ -606,10 +606,10 @@ export async function shareInvite() {
 
 // ───────────────────────── chat ─────────────────────────
 
-/** Grava as preferências da interface (chat, faixa de planetas, 3D). */
+/** Grava as preferências da interface (chat, lista de pessoas, faixa de planetas, 3D). */
 function persistUi() {
   const s = getApp();
-  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, orbitView: s.orbitView });
+  saveUiPrefs({ chatOpen: s.chatOpen, chatWidth: s.chatWidth, orbitHidden: s.orbitHidden, orbitView: s.orbitView, peopleWidth: s.peopleWidth, peopleHidden: s.peopleHidden });
 }
 
 /** Como a órbita aparece: 3D, 2D (órbita plana) ou todos numa linha (fica salvo). */
@@ -637,6 +637,18 @@ export function applyUpdate() {
 export function setChatWidth(chatWidth: number | null, save = true) {
   setApp({ chatWidth });
   if (save) persistUi();
+}
+
+/** Largura da lista de pessoas arrastando a borda (null = volta ao padrão). */
+export function setPeopleWidth(peopleWidth: number | null, save = true) {
+  setApp({ peopleWidth });
+  if (save) persistUi();
+}
+
+/** Minimiza ou mostra a lista de pessoas da esquerda (fica salvo). */
+export function setPeopleHidden(peopleHidden: boolean) {
+  setApp({ peopleHidden });
+  persistUi();
 }
 
 /** Esconde ou mostra a faixa de planetas embaixo da live (fica salvo). */

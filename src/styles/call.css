@@ -1059,50 +1059,90 @@
   z-index: 6;
 }
 
-.orbit-line {
+/* anéis: host no meio e todos parados em volta; cabe na área e dá zoom */
+.orbit-rings {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
   overflow: hidden;
+  contain: layout paint;
+  touch-action: none;
   background: radial-gradient(60% 50% at 50% 50%, rgba(99, 102, 241, 0.14), transparent 70%);
 }
 
-.orbit-line__row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  max-width: 100%;
-  padding: 44px 16px 12px;
-  overflow-x: auto;
+.orbit-rings.is-panning {
+  cursor: grabbing;
 }
 
-.orbit-line--compact .orbit-line__row {
-  padding: 30px 12px 6px;
+.orbit-rings__stage {
+  position: absolute;
+  transform-origin: 50% 50%;
 }
 
-.orbit-line__item {
-  flex: none;
+.orbit-rings__lines {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.orbit-rings__lines ellipse,
+.orbit-rings__lines path {
+  fill: none;
+  stroke: rgba(148, 163, 255, 0.13);
+  stroke-width: 1;
+  stroke-dasharray: 3 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.orbit-rings__item {
+  position: absolute;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  padding: 0;
   border-radius: 14px;
-  padding: 6px 4px;
 }
 
-.orbit-line__item:hover .orbit3d__name,
-.orbit-line__item:focus-visible .orbit3d__name {
+/* na faixa compacta o nome fica por cima da parte de baixo do planeta */
+.orbit-rings--compact .orbit3d__name {
+  position: relative;
+  z-index: 4;
+  margin-top: -14px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+}
+
+.orbit-rings__item:hover .orbit3d__name,
+.orbit-rings__item:focus-visible .orbit3d__name {
   border-color: var(--line-2);
   background: rgba(21, 25, 56, 0.92);
 }
 
-.orbit-line__item.is-host .orbit3d__name {
+.orbit-rings__item.is-host .orbit3d__name {
   font-size: 14px;
   color: #fde68a;
 }
 
-.orbit-line__item.is-away {
+.orbit-rings--compact .orbit-rings__item.is-host .orbit3d__name {
+  font-size: 12px;
+}
+
+.orbit-rings__item.is-away {
   filter: grayscale(0.8);
   opacity: 0.55;
+}
+
+/* parado de verdade: sem textura girando, luas nem enfeites em órbita */
+.orbit-rings .planet__tex,
+.orbit-rings .planet__orbit,
+.orbit-rings .planet__orn,
+.orbit-rings .planet__orn-shape {
+  animation: none;
+}
+
+.orbit-modes .orbit3d__tool:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

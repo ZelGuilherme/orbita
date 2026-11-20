@@ -89,8 +89,12 @@ export interface UiPrefs {
   chatWidth: number | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
-  /** Como a órbita aparece: 3D, 2D (órbita plana) ou todos numa linha com o host no meio. */
+  /** Como a órbita aparece: 3D, 2D (órbita plana) ou anéis parados com o host no meio. */
   orbitView: OrbitView;
+  /** Largura da lista de pessoas (esquerda) em px (null = padrão). */
+  peopleWidth: number | null;
+  /** Lista de pessoas minimizada (só no computador; no celular ela é uma gaveta). */
+  peopleHidden: boolean;
 }
 
 export type OrbitView = '3d' | '2d' | 'line';
@@ -267,7 +271,15 @@ export function loadUiPrefs(): UiPrefs {
   // no celular o chat cobre a chamada: começa fechado
   const wide = typeof window === 'undefined' || window.innerWidth > 760;
   const width = Number(saved?.chatWidth);
-  return { chatOpen: saved ? saved.chatOpen !== false : wide, chatWidth: Number.isFinite(width) && width >= 240 ? width : null, orbitHidden: saved?.orbitHidden === true, orbitView: orbitViewOf(saved) };
+  const people = Number(saved?.peopleWidth);
+  return {
+    chatOpen: saved ? saved.chatOpen !== false : wide,
+    chatWidth: Number.isFinite(width) && width >= 240 ? width : null,
+    orbitHidden: saved?.orbitHidden === true,
+    orbitView: orbitViewOf(saved),
+    peopleWidth: Number.isFinite(people) && people >= 180 ? people : null,
+    peopleHidden: saved?.peopleHidden === true,
+  };
 }
 
 export const saveUiPrefs = (prefs: UiPrefs) => write(UI_KEY, prefs);

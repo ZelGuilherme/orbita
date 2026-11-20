@@ -109,7 +109,7 @@ export interface AppState {
   focus: string | null;
   /** Faixa de planetas embaixo da live escondida. */
   orbitHidden: boolean;
-  /** Como a órbita aparece: 3D, 2D ou numa linha. */
+  /** Como a órbita aparece: 3D, 2D ou em anéis parados (guardado como 'line'). */
   orbitView: OrbitView;
   localMutes: Record<string, boolean>;
   audioBlocked: boolean;
@@ -120,6 +120,10 @@ export interface AppState {
   pen: PenPrefs;
   /** Largura do chat em px (null = padrão). */
   chatWidth: number | null;
+  /** Largura da lista de pessoas em px (null = padrão). */
+  peopleWidth: number | null;
+  /** Lista de pessoas minimizada (no computador). */
+  peopleHidden: boolean;
   /** Saiu uma versão nova do Órbita. */
   updateReady: boolean;
   /** Lista de órbitas abertas (do ponto de encontro). */
@@ -201,6 +205,8 @@ export const useApp = create<AppState>()(() => ({
   liveVolumes: loadLiveVolumes(),
   chatOpen: loadUiPrefs().chatOpen,
   chatWidth: loadUiPrefs().chatWidth,
+  peopleWidth: loadUiPrefs().peopleWidth,
+  peopleHidden: loadUiPrefs().peopleHidden,
   orbitHidden: loadUiPrefs().orbitHidden,
   orbitView: loadUiPrefs().orbitView,
   pen: loadPen(),

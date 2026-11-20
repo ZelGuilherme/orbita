@@ -97,6 +97,78 @@
   display: none;
 }
 
+.people__hide {
+  flex: none;
+  width: 34px;
+  height: 34px;
+}
+
+/* alça na borda direita: arrastar muda a largura */
+.people__resize {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.people__resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.people__resize:hover::after,
+.people__resize:focus-visible::after,
+.people__resize.is-dragging::after {
+  background: var(--accent);
+}
+
+.people__resize.is-collapsing::after {
+  background: var(--danger);
+}
+
+/* lista minimizada (só no computador): some e o botão de pessoas aparece no topo da chamada */
+@media (min-width: 1041px) {
+  .room--people-hidden {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+
+  .room--people-hidden.room--chat {
+    grid-template-columns: 0 minmax(0, 1fr) var(--chat-w);
+  }
+
+  /* continua no grid (com largura 0), senão a chamada e o chat trocam de coluna */
+  .room--people-hidden .people {
+    visibility: hidden;
+    overflow: hidden;
+    border-right: 0;
+  }
+
+  .room--people-hidden .stage-header__people {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    color: var(--text-2);
+  }
+
+  .room--people-hidden .stage-header__people:hover {
+    background: var(--bg-4);
+    color: var(--text);
+  }
+}
+
 .people__scroll {
   flex: 1;
   min-height: 0;
@@ -613,6 +685,11 @@
 
   .room--chat {
     grid-template-columns: minmax(0, 1fr) var(--chat-w);
+  }
+
+  .people__resize,
+  .people__hide {
+    display: none;
   }
 
   .people {

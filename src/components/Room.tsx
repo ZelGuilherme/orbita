@@ -11,12 +11,14 @@ import { MemberCard } from './MemberCard';
 import { People } from './People';
 import { cx } from './ui';
 
-/** A sala: pessoas à esquerda, a chamada no meio e o chat (que dá para esconder) à direita. */
+/** A sala: pessoas à esquerda e o chat à direita (os dois dá para esconder e mudar a largura), a chamada no meio. */
 export function Room() {
   const room = useApp((s) => s.room);
   const chatOpen = useApp((s) => s.chatOpen);
   const peopleOpen = useApp((s) => s.peopleOpen);
   const chatWidth = useApp((s) => s.chatWidth);
+  const peopleWidth = useApp((s) => s.peopleWidth);
+  const peopleHidden = useApp((s) => s.peopleHidden);
   const net = useApp((s) => s.net);
   const netDetail = useApp((s) => s.netDetail);
   const updateReady = useApp((s) => s.updateReady);
@@ -27,8 +29,8 @@ export function Room() {
   if (!room) return null;
   return (
     <div
-      className={cx('room', chatOpen && 'room--chat', peopleOpen && 'room--people')}
-      style={chatWidth ? ({ '--chat-w': `${chatWidth}px` } as CSSProperties) : undefined}
+      className={cx('room', chatOpen && 'room--chat', peopleOpen && 'room--people', peopleHidden && 'room--people-hidden')}
+      style={{ ...(chatWidth ? { '--chat-w': `${chatWidth}px` } : null), ...(peopleWidth ? { '--people-w': `${peopleWidth}px` } : null) } as CSSProperties}
     >
       <People />
       <main className="room__main">

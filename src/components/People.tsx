@@ -15,21 +15,80 @@ import {
   LogOut,
   Mic,
   MicOff,
+  PanelLeftClose,
   Pencil,
   Settings,
   UserPlus,
   Video,
   X,
 } from 'lucide-react';
-import { copyInvite, openLive, requestLeave, setFixed, setListed, setLocked, toggleDeafen, toggleMic } from '../controller';
+import { copyInvite, openLive, requestLeave, setFixed, setListed, setLocked, setPeopleHidden, setPeopleWidth, toggleDeafen, toggleMic } from '../controller';
 import { otherBuild } from '../lib/build';
 import type { Member } from '../lib/protocol';
-import { setApp, useApp, voiceChannelOf } from '../store';
+import { getApp, setApp, useApp, voiceChannelOf } from '../store';
 import { openMemberCard } from './MemberCard';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { SignalBars } from './SoundPanel';
 import { cx, IconButton } from './ui';
+
+
+const MIN_PEOPLE = 200;
+const DEFAULT_PEOPLE = 256;
+const clampPeople = (width: number) => Math.round(Math.max(MIN_PEOPLE, Math.min(width, Math.max(MIN_PEOPLE, Math.min(440, window.innerWidth / 3)))));
+
+/**
+ * Alça na borda direita da lista: arraste para mudar a largura (levando quase até a borda da
+ * tela, ela minimiza); dois cliques voltam ao padrão. Setas do teclado também mudam.
+ */
+function PeopleResize() {
+  const width = useApp((s) => s.peopleWidth);
+  return (
+    <div
+      className="people__resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Largura da lista de pessoas"
+      aria-valuenow={width ?? DEFAULT_PEOPLE}
+      tabIndex={0}
+      title="Arraste para mudar a largura (até a borda minimiza) · dois cliques voltam ao padrão"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const handle = e.currentTarget;
+        const start = getApp().peopleWidth;
+        let collapse = false;
+        handle.setPointerCapture(e.pointerId);
+        handle.classList.add('is-dragging');
+        const move = (ev: PointerEvent) => {
+          collapse = ev.clientX < MIN_PEOPLE * 0.6;
+          handle.classList.toggle('is-collapsing', collapse);
+          setPeopleWidth(clampPeople(ev.clientX), false);
+        };
+        const up = () => {
+          handle.classList.remove('is-dragging', 'is-collapsing');
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', up);
+          handle.removeEventListener('pointercancel', up);
+          if (collapse) {
+            // minimiza e guarda a largura de antes, para voltar igual
+            setPeopleWidth(start, false);
+            setPeopleHidden(true);
+          } else setPeopleWidth(getApp().peopleWidth);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+      }}
+      onDoubleClick={() => setPeopleWidth(null)}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const current = e.currentTarget.parentElement?.getBoundingClientRect().width ?? DEFAULT_PEOPLE;
+        setPeopleWidth(clampPeople(current + (e.key === 'ArrowRight' ? 24 : -24)));
+      }}
+    />
+  );
+}
 
 /** Painel da esquerda: a sala, quem está na chamada, quem está só na órbita e você. */
 export function People() {
@@ -56,10 +115,14 @@ export function People() {
           </span>
           <ChevronDown size={18} className="chev" />
         </button>
+        <IconButton label="Minimizar a lista" tipPos="bottom" className="people__hide" onClick={() => setPeopleHidden(true)}>
+          <PanelLeftClose size={18} />
+        </IconButton>
         <button type="button" className="people__close" aria-label="Fechar" onClick={() => setApp({ peopleOpen: false })}>
           <X size={20} />
         </button>
       </div>
+      <PeopleResize />
       {menu && <RoomMenu onClose={() => setMenu(false)} />}
 
       <div className="people__scroll">

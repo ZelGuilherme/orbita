@@ -34,6 +34,7 @@ import {
   leaveCall,
   openLive,
   setOrbitHidden,
+  setPeopleHidden,
   showCamera,
   reconnectLive,
   setLiveVolume,
@@ -59,7 +60,7 @@ import { openMemberCard } from './MemberCard';
 import { Planet } from './Planet';
 import { ClipButton, RecordButton, RecordingNotice } from './Capture';
 import { FlingButton, FlingLayer, useDomPlanets } from './Flings';
-import { OrbitLine, OrbitModeSwitch } from './OrbitViews';
+import { OrbitModeSwitch, OrbitRings } from './OrbitViews';
 import { SoundButton } from './SoundPanel';
 import { ZoomStage } from './ZoomStage';
 import { cx, IconButton, useReducedMotion, VideoEl } from './ui';
@@ -69,10 +70,10 @@ const EMPTY: Member[] = [];
 /** A órbita em 3D só é baixada (three.js) quando aparece. */
 const Orbit3D = lazy(() => import('./Orbit3D'));
 
-/** A órbita do centro: 3D, 2D ou numa linha (escolha no canto; sem 3D no navegador, fica o 2D). */
+/** A órbita do centro: 3D, 2D ou em anéis (escolha no canto; sem 3D no navegador, fica o 2D). */
 function OrbitView(props: { members: Member[]; room: RoomState; onPick: (member: Member, anchor: Element) => void; compact?: boolean }) {
   const mode = useApp((s) => s.orbitView);
-  if (mode === 'line') return <OrbitLine {...props} />;
+  if (mode === 'line') return <OrbitRings {...props} />;
   if (mode === '2d' || !hasWebGL()) return <OrbitStage {...props} />;
   return (
     <Suspense fallback={<OrbitStage {...props} />}>
@@ -162,7 +163,14 @@ function StageHeader({ room, count }: { room: RoomState; count: number }) {
   const mentions = useApp((s) => s.mentions);
   return (
     <header className="stage-header">
-      <button type="button" className="stage-header__people" aria-label="Pessoas na órbita" onClick={() => setApp({ peopleOpen: true })}>
+      <button
+        type="button"
+        className="stage-header__people"
+        aria-label="Pessoas na órbita"
+        title="Mostrar a lista de pessoas"
+        // no computador a lista volta para a esquerda; no celular abre a gaveta
+        onClick={() => (window.matchMedia('(max-width: 1040px)').matches ? setApp({ peopleOpen: true }) : setPeopleHidden(false))}
+      >
         <Users size={20} />
       </button>
       <div className="stage-header__title">

@@ -636,7 +636,7 @@
   position: relative;
   z-index: 3;
   flex: none;
-  margin: 8px 10px 0;
+  margin: 8px 10px 4px;
 }
 
 .pinned-bar__main {
@@ -903,4 +903,9 @@
 
 .file-card .btn {
   flex: none;
+}
+
+.file-card__warn {
+  font-size: 12px;
+  color: var(--warn);
 }

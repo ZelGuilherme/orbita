@@ -1,5 +1,6 @@
 import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
+import { APP_BUILD } from './build';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
 import { Hub, createRoom, hubPeerId } from './hub';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
@@ -233,7 +234,15 @@ export class Session {
     return {
       t: 'hello',
       v: PROTOCOL_VERSION,
-      member: { id: this.meId, peerId: this.peer.id, name: this.identity.name, color: this.identity.color, avatar: this.identity.avatar, planet: this.identity.planet },
+      member: {
+        id: this.meId,
+        peerId: this.peer.id,
+        name: this.identity.name,
+        color: this.identity.color,
+        avatar: this.identity.avatar,
+        planet: this.identity.planet,
+        build: APP_BUILD,
+      },
       presence: this.presence(),
       rejoinAt: rejoin ? me?.joinedAt : undefined,
     };

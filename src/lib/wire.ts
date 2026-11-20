@@ -29,7 +29,11 @@ export class PeerWire implements Wire {
   private closed = false;
   private partial = new Map<string, { parts: string[]; got: number }>();
 
-  constructor(readonly conn: DataConnection) {
+  /** @param maxChunks maior mensagem aceita, em pedaços (a lista de órbitas usa um limite bem menor). */
+  constructor(
+    readonly conn: DataConnection,
+    private maxChunks = MAX_CHUNKS,
+  ) {
     conn.on('data', (data) => this.receive(data));
     conn.on('close', () => this.lost());
     conn.on('error', (err) => console.warn('[wire]', err.type, err.message));
@@ -95,7 +99,7 @@ export class PeerWire implements Wire {
     const id = data.slice(1, a);
     const index = Number(data.slice(a + 1, b));
     const total = Number(data.slice(b + 1, c));
-    if (!Number.isInteger(index) || !Number.isInteger(total) || total > MAX_CHUNKS || index < 0 || index >= total) return;
+    if (!Number.isInteger(index) || !Number.isInteger(total) || total > this.maxChunks || index < 0 || index >= total) return;
     let entry = this.partial.get(id);
     if (!entry) {
       if (this.partial.size > 16) this.partial.clear();

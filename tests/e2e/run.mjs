@@ -592,6 +592,19 @@ async function saguao(opened) {
   await waitFor(b.page, (cd) => window.__orbita.getApp().phase === 'room' && window.__orbita.getApp().code === cd, code, 40_000);
   log('  pedido aceito: Bruno entrou na órbita');
 
+  // aviso de versão diferente: mesma versão, sem aviso; alguém de versão antiga (sem versão) ganha o ⚠
+  await waitFor(a.page, () => window.__orbita.getApp().room.members.every((m) => typeof m.build === 'string' && m.build.length > 2));
+  if (await a.page.locator('.person__version').count()) throw new Error('aviso de versão aparecendo com todo mundo na mesma versão');
+  await a.page.evaluate(() => {
+    // alguém de versão antiga (sem versão) entra no estado da sala, direto no hub da Ana
+    const hub = window.__orbita.session().hub;
+    const bruno = hub.state.members.find((m) => m.name === 'Bruno');
+    hub.state.members.push({ ...bruno, id: 'velho1234abcd.zz99', peerId: 'velho-peer-x', name: 'Velho', build: undefined, voiceChannelId: null, live: null, cameraOn: false });
+    hub.pushState();
+  });
+  await a.page.locator('.person', { hasText: 'Velho' }).locator('.person__version').waitFor({ timeout: 5_000 });
+  log('  aviso de versão diferente ok');
+
   // Carla pede; a Ana recusa
   await c.page.locator('.lobby-room', { hasText: roomName }).getByRole('button', { name: /Pedir para entrar/ }).click();
   await a.page.locator('.knock', { hasText: 'Carla' }).waitFor({ timeout: 20_000 });

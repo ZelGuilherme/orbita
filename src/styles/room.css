@@ -752,3 +752,8 @@
     animation: none;
   }
 }
+
+.person__version {
+  display: inline-flex;
+  color: var(--warn);
+}

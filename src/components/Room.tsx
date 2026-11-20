@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
-import { LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-react';
 import { applyUpdate, setChatOpen } from '../controller';
+import { otherBuild } from '../lib/build';
 import { setApp, useApp } from '../store';
 import { AudioRenderer } from './AudioRenderer';
 import { CallView } from './CallView';
@@ -19,6 +20,10 @@ export function Room() {
   const net = useApp((s) => s.net);
   const netDetail = useApp((s) => s.netDetail);
   const updateReady = useApp((s) => s.updateReady);
+  const hostOutdated = useApp((s) => {
+    const host = s.room?.members.find((m) => m.id === s.room?.hostId);
+    return !!host && host.id !== s.meId && otherBuild(host.build);
+  });
   if (!room) return null;
   return (
     <div
@@ -33,6 +38,12 @@ export function Room() {
             {netDetail === 'transfer'
               ? 'Trocando de host… a órbita já volta.'
               : 'Conexão com o host perdida — reconectando (ou escolhendo um novo centro da órbita)…'}
+          </div>
+        )}
+        {hostOutdated && !updateReady && (
+          <div className="banner banner--warn" role="status">
+            <TriangleAlert size={15} /> Você e o host estão com versões diferentes do Órbita. Se algo não funcionar, quem estiver na versão antiga precisa
+            atualizar a página (Ctrl+F5).
           </div>
         )}
         {updateReady && (

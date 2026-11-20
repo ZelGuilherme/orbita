@@ -119,7 +119,7 @@ export interface AppState {
   /** Versão da extensão de atalhos, se estiver instalada. */
   extension: string | null;
   /** Meu pedido para entrar numa órbita da lista. */
-  knocking: { listingId: string; roomName: string; knockId?: string; accepted?: boolean } | null;
+  knocking: { listingId: string; roomName: string } | null;
   /** (host) Pedidos para entrar na minha órbita. */
   knocks: Array<Knock & { at: number }>;
   /** Já fechei a dica da janela flutuante nesta live. */

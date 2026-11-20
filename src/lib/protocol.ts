@@ -79,6 +79,8 @@ export interface Member extends Presence {
   color: string;
   /** Textura, anéis, luas e brilho do planeta. */
   planet?: PlanetStyle;
+  /** Versão do Órbita da pessoa (ausente = versão antiga, de antes do aviso). */
+  build?: string;
   /** Ordem de chegada: define quem herda o host se ele cair. */
   joinedAt: number;
   /** Microfone bloqueado pelo host. */
@@ -172,7 +174,7 @@ export type ClientMsg =
   | {
       t: 'hello';
       v: number;
-      member: { id: string; peerId: string; name: string; color: string; avatar?: string; planet?: PlanetStyle };
+      member: { id: string; peerId: string; name: string; color: string; avatar?: string; planet?: PlanetStyle; build?: string };
       presence: Presence;
       /** Reentrada depois de queda/migração: mantém o lugar na fila. */
       rejoinAt?: number;

@@ -19,7 +19,7 @@ export function LobbyList() {
         <div className="lobby__waiting" role="status">
           <LoaderCircle size={16} className="spin" />
           <span>
-            {knocking.accepted ? 'Aceito! Recebendo o convite de' : 'Esperando o host de'} <b>{knocking.roomName}</b> responder…
+            Esperando o host de <b>{knocking.roomName}</b> responder…
           </span>
           <button type="button" className="btn btn--ghost btn--sm" onClick={cancelKnock}>
             Cancelar
@@ -47,7 +47,7 @@ export function LobbyList() {
                 className="btn btn--sm"
                 disabled={room.locked || !!knocking}
                 title={room.locked ? 'O host trancou esta órbita' : undefined}
-                onClick={() => knockRoom(room.id)}
+                onClick={() => void knockRoom(room.id)}
               >
                 <DoorOpen size={14} /> {room.locked ? 'Trancada' : 'Pedir para entrar'}
               </button>

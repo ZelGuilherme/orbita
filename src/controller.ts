@@ -63,7 +63,6 @@ let session: Session | null = null;
 let media: MediaEngine | null = null;
 let files: FileShare | null = null;
 let lobby: LobbyClient | null = null;
-let knockTimer = 0;
 let typingSentAt = 0;
 let viewersTimer = 0;
 let initialized = false;
@@ -336,7 +335,10 @@ function mediaEvents(): MediaEvents {
       sendPresence({ cameraOn: false });
     },
     micLost: () => toast('O microfone foi desconectado.', 'error'),
-    quality: (links) => setApp({ quality: links }),
+    quality: (links) => {
+      // só atualiza a tela quando algo mudou
+      if (JSON.stringify(links) !== JSON.stringify(getApp().quality)) setApp({ quality: links });
+    },
   };
 }
 
@@ -1203,34 +1205,7 @@ function startLobby() {
     rooms: (lobbyRooms) => setApp({ lobbyRooms }),
     online: (lobbyOnline) => setApp({ lobbyOnline }),
     knock: onKnock,
-    knocked: (knockId, listingId) =>
-      setApp((s) => (s.knocking && s.knocking.listingId === listingId ? { knocking: { ...s.knocking, knockId } } : s)),
-    answer: (knockId, accept) => {
-      const k = getApp().knocking;
-      if (!k || k.knockId !== knockId) return;
-      if (accept) {
-        setApp({ knocking: { ...k, accepted: true } });
-        return;
-      }
-      clearTimeout(knockTimer);
-      setApp({ knocking: null });
-      toast('O host recusou o pedido.', 'error');
-    },
-    invite: (knockId, code) => {
-      const k = getApp().knocking;
-      if (!k || k.knockId !== knockId) return;
-      clearTimeout(knockTimer);
-      setApp({ knocking: null });
-      if (session || getApp().phase !== 'landing') return;
-      toast('Pedido aceito! Entrando na órbita…', 'success');
-      void enterRoom('join', code);
-    },
-    gone: (listingId) => {
-      if (getApp().knocking?.listingId !== listingId) return;
-      clearTimeout(knockTimer);
-      setApp({ knocking: null });
-      toast('Essa órbita não está mais na lista.');
-    },
+    knockGone: (knockId) => setApp((s) => ({ knocks: s.knocks.filter((k) => k.knockId !== knockId) })),
   });
   void lobby.start();
   if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaLobby = lobby;
@@ -1251,32 +1226,33 @@ function syncAnnounce() {
   );
 }
 
-/** Pedir para entrar numa órbita da lista: o código só vem se o host aceitar. */
-export function knockRoom(listingId: string) {
+/** Pedir para entrar numa órbita da lista: conversa direto com o host; o código só vem se ele aceitar. */
+export async function knockRoom(listingId: string) {
   const s = getApp();
   const room = s.lobbyRooms.find((r) => r.id === listingId);
   if (!lobby || !room || s.knocking || session) return;
-  const name = s.profile.name;
-  if (!lobby.knock(listingId, name, s.profile.color)) {
-    toast('Sem conexão com a lista de órbitas agora. Tente de novo.', 'error');
+  setApp({ knocking: { listingId, roomName: room.name } });
+  const result = await lobby.knock(room, s.profile.name, s.profile.color);
+  if (getApp().knocking?.listingId !== listingId) return;
+  setApp({ knocking: null });
+  if (result.accept) {
+    if (session || getApp().phase !== 'landing') return;
+    toast('Pedido aceito! Entrando na órbita…', 'success');
+    void enterRoom('join', result.code);
     return;
   }
-  setApp({ knocking: { listingId, roomName: room.name } });
-  clearTimeout(knockTimer);
-  knockTimer = window.setTimeout(() => {
-    if (getApp().knocking?.listingId !== listingId) return;
-    const knockId = getApp().knocking?.knockId;
-    if (knockId) lobby?.cancelKnock(knockId);
-    setApp({ knocking: null });
-    toast('O host não respondeu. Tente de novo mais tarde.', 'error');
-  }, 90_000);
+  const why = {
+    refused: 'O host recusou o pedido.',
+    unreachable: 'Não consegui falar com o host dessa órbita. Tente de novo.',
+    timeout: 'O host não respondeu. Tente de novo mais tarde.',
+    cancelled: '',
+  }[result.reason];
+  if (why) toast(why, 'error');
 }
 
 export function cancelKnock() {
-  const k = getApp().knocking;
-  if (k?.knockId) lobby?.cancelKnock(k.knockId);
-  clearTimeout(knockTimer);
   setApp({ knocking: null });
+  lobby?.cancelKnock();
 }
 
 function onKnock(knock: Knock) {
@@ -1633,6 +1609,6 @@ export function initController() {
   window.addEventListener('pointerdown', resume, true);
   window.addEventListener('keydown', resume, true);
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>).__orbita = { getApp, session: () => session };
+    (window as unknown as Record<string, unknown>).__orbita = { getApp, setApp, session: () => session };
   }
 }

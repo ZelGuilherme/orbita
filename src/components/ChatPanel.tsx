@@ -47,7 +47,7 @@ import {
   shareFile,
 } from '../controller';
 import { MAX_TEXT_LENGTH, QUICK_EMOJIS, REACTIONS } from '../lib/config';
-import { formatBytes } from '../lib/files';
+import { formatBytes, isRisky } from '../lib/files';
 import { imageToAttachment } from '../lib/images';
 import { isJumbo, mentionKeys, mentionsName, renderMarkdown } from '../lib/markdown';
 import type { Attachment, ChatMessage, FileAttachment, ImageAttachment, Member } from '../lib/protocol';
@@ -432,7 +432,7 @@ const MessageItem = memo(function MessageItem({ message, head, mine, canDelete, 
         <button type="button" className="msg__reply" onClick={() => jumpToMessage(message.replyTo!.id)} title="Ir para a mensagem respondida">
           <CornerDownRight size={14} />
           <b>{message.replyTo.authorName}</b>
-          <span>{message.replyTo.text}</span>
+          <span>{message.replyTo.text.replace(/[*_~`>|]/g, '')}</span>
         </button>
       )}
       {withHead ? (
@@ -591,6 +591,7 @@ function FileCard({ attachment }: { attachment: FileAttachment }) {
         <span className="file-card__meta">
           {formatBytes(attachment.size)} · {status}
         </span>
+        {!mine && isRisky(attachment.name) && <span className="file-card__warn">⚠️ Programa ou script: só abra se confiar em quem mandou.</span>}
         {downloading && (
           <span className="file-card__bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
             <i style={{ width: `${pct}%` }} />

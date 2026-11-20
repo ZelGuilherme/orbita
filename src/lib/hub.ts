@@ -410,6 +410,7 @@ export class Hub {
       name: sanitizeName(info.name),
       color: sanitizeColor(info.color),
       planet: sanitizePlanet(info.planet),
+      build: typeof info.build === 'string' && /^[a-z0-9-]{3,40}$/.test(info.build) ? info.build : undefined,
       joinedAt: prev?.joinedAt ?? this.nextJoinedAt(msg.rejoinAt),
       voiceChannelId: null,
       micOn: true,

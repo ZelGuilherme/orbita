@@ -16,7 +16,6 @@ const clock = (ms: number) => {
 /** Gravar a chamada (o som de todos e, se houver, a live em destaque). */
 export function RecordButton() {
   const recording = useApp((s) => s.recording);
-  const now = useNow(1_000);
   return (
     <button
       type="button"
@@ -26,9 +25,15 @@ export function RecordButton() {
       onClick={() => void toggleRecording()}
     >
       <Circle fill={recording ? 'currentColor' : 'none'} />
-      {recording && <span className="ctrl__tag ctrl__tag--live">{clock(now - recording.since)}</span>}
+      {recording && <RecordClock since={recording.since} />}
     </button>
   );
+}
+
+/** O relógio só existe (e redesenha a cada segundo) enquanto grava. */
+function RecordClock({ since }: { since: number }) {
+  const now = useNow(1_000);
+  return <span className="ctrl__tag ctrl__tag--live">{clock(now - since)}</span>;
 }
 
 /** Salvar o último minuto (só aparece com os clipes ligados). */

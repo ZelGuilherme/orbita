@@ -7,6 +7,7 @@ import {
   EyeOff,
   HeadphoneOff,
   Headphones,
+  TriangleAlert,
   Lock,
   LockOpen,
   LogOut,
@@ -19,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { copyInvite, openLive, requestLeave, setListed, setLocked, toggleDeafen, toggleMic } from '../controller';
+import { otherBuild } from '../lib/build';
 import type { Member } from '../lib/protocol';
 import { setApp, useApp, voiceChannelOf } from '../store';
 import { openMemberCard } from './MemberCard';
@@ -184,6 +186,11 @@ function PersonRow({ member, host, me, speaking }: { member: Member; host: boole
         </span>
       </span>
       <span className="person__icons">
+        {!me && otherBuild(member.build) && (
+          <span className="person__version" title="Versão diferente do Órbita: peça para essa pessoa atualizar a página (Ctrl+F5)" role="img" aria-label="Versão diferente do Órbita">
+            <TriangleAlert size={14} />
+          </span>
+        )}
         {member.voiceChannelId && !me && <SignalBars memberId={member.id} />}
         {member.cameraOn && <Video size={14} />}
         {member.voiceChannelId && muted && <MicOff size={14} className={member.serverMuted ? 'danger' : undefined} />}

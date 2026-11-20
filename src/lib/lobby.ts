@@ -2,7 +2,7 @@ import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { APP_SLUG, PROTOCOL_VERSION, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from './config';
 import { keepSignaling, openPeer } from './peer';
-import { clampText, randomId, sanitizeColor, sanitizeName, sanitizeRoomName } from './util';
+import { randomId, sanitizeColor, sanitizeName, sanitizeRoomName } from './util';
 import { createLocalPair, PeerWire, type Wire } from './wire';
 
 /**
@@ -12,12 +12,18 @@ import { createLocalPair, PeerWire, type Wire } from './wire';
  * encontro; os outros se conectam a ele. Se ele fecha, todo mundo tenta de novo depois de um
  * atraso aleatório e o primeiro a reservar o ID vira o novo ponto (o servidor de sinalização
  * garante que só um consegue). Os hosts anunciam a sala (nome, host, quantas pessoas), nunca o
- * código. "Pedir para entrar" passa pelo ponto de encontro até o host; se ele aceitar, o código
- * vai DIRETO do host para quem pediu (conexão P2P própria), sem passar pelo ponto de encontro.
+ * código.
+ *
+ * "Pedir para entrar" NÃO passa pelo ponto de encontro: ele só diz o endereço (peer) do host na
+ * lista, e quem pede abre uma conexão direta com o host. O pedido e o código (se o host aceitar)
+ * viajam só nessa conexão. Assim, mesmo um ponto de encontro malicioso (ele roda no navegador de
+ * qualquer um) não consegue pegar o código de sala nenhuma.
  */
 
 export interface Listing {
   id: string;
+  /** Peer do host para pedir para entrar (direto, sem passar pelo ponto de encontro). */
+  peer: string;
   name: string;
   hostName: string;
   hostColor: string;
@@ -25,30 +31,19 @@ export interface Listing {
   locked: boolean;
 }
 
-export type ListingInfo = Omit<Listing, 'id'>;
+export type ListingInfo = Omit<Listing, 'id' | 'peer'>;
 
 export interface Knock {
   knockId: string;
   name: string;
   color: string;
-  /** Peer de quem pediu (para entregar o código direto). */
+  /** Peer de quem pediu. */
   peerId: string;
 }
 
-type ToServer =
-  | { t: 'hello'; v: number }
-  | { t: 'pong' }
-  | { t: 'announce'; room: ListingInfo | null }
-  | { t: 'knock'; listingId: string; name: string; color: string }
-  | { t: 'answer'; knockId: string; accept: boolean };
+type ToServer = { t: 'hello'; v: number } | { t: 'pong' } | { t: 'announce'; room: ListingInfo | null };
 
-type ToClient =
-  | { t: 'rooms'; rooms: Listing[] }
-  | { t: 'ping' }
-  | { t: 'knock'; knock: Knock }
-  | { t: 'knocked'; knockId: string; listingId: string }
-  | { t: 'answer'; knockId: string; accept: boolean }
-  | { t: 'gone'; listingId: string };
+type ToClient = { t: 'rooms'; rooms: Listing[] } | { t: 'ping' };
 
 const LOBBY_VERSION = 1;
 const MAX_CLIENTS = 300;
@@ -57,7 +52,11 @@ const PING_MS = 10_000;
 const CLIENT_TIMEOUT_MS = 35_000;
 const SERVER_TIMEOUT_MS = 30_000;
 const KNOCK_GAP_MS = 4_000;
-const KNOCK_TTL_MS = 90_000;
+const KNOCK_WAIT_MS = 90_000;
+const MAX_KNOCKS = 8;
+/** Mensagens da lista são pequenas: nada de montar megabytes vindos de um desconhecido. */
+const MAX_CHUNKS = 40;
+const PEER_ID = /^[A-Za-z0-9_-]{6,64}$/;
 const CODE = new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`);
 
 /** ID do ponto de encontro. Em desenvolvimento dá para trocar (os testes usam um só deles). */
@@ -90,14 +89,12 @@ interface ServerClient {
   peerId: string;
   listing: Listing | null;
   lastSeen: number;
-  knockAt: number;
   hello: boolean;
 }
 
 /** O ponto de encontro: roda na aba que conseguiu reservar o ID. */
 class LobbyServer {
   private clients = new Map<Wire, ServerClient>();
-  private knocks = new Map<string, { from: Wire; to: Wire; at: number }>();
   private heartbeat: number;
   private pending = 0;
   private stopped = false;
@@ -124,12 +121,12 @@ class LobbyServer {
     conn.once('open', () => {
       clearTimeout(timer);
       if (this.stopped) conn.close();
-      else this.add(new PeerWire(conn), conn.peer);
+      else this.add(new PeerWire(conn, MAX_CHUNKS), conn.peer);
     });
   }
 
   private add(wire: Wire, peerId: string) {
-    const client: ServerClient = { wire, peerId, listing: null, lastSeen: Date.now(), knockAt: 0, hello: false };
+    const client: ServerClient = { wire, peerId, listing: null, lastSeen: Date.now(), hello: false };
     this.clients.set(wire, client);
     wire.onMessage = (msg: ToServer) => {
       client.lastSeen = Date.now();
@@ -141,15 +138,6 @@ class LobbyServer {
   private drop(client: ServerClient) {
     if (!this.clients.delete(client.wire)) return;
     client.wire.close();
-    for (const [id, knock] of this.knocks) {
-      if (knock.to === client.wire) {
-        // o host sumiu: quem pediu fica sabendo
-        this.send(knock.from, { t: 'answer', knockId: id, accept: false });
-        this.knocks.delete(id);
-      } else if (knock.from === client.wire) {
-        this.knocks.delete(id);
-      }
-    }
     if (client.listing) this.publishSoon();
   }
 
@@ -178,33 +166,9 @@ class LobbyServer {
           return;
         }
         if (!client.listing && this.listings().length >= MAX_LISTINGS) return;
-        client.listing = { id: client.listing?.id ?? randomId(10), ...info };
+        // o endereço é o da própria conexão (ninguém anuncia sala em nome de outro)
+        client.listing = { id: client.listing?.id ?? randomId(10), peer: client.peerId, ...info };
         this.publishSoon();
-        return;
-      }
-      case 'knock': {
-        if (!client.hello || typeof msg.listingId !== 'string') return;
-        const now = Date.now();
-        if (now - client.knockAt < KNOCK_GAP_MS) return;
-        client.knockAt = now;
-        const host = [...this.clients.values()].find((c) => c.listing?.id === msg.listingId);
-        if (!host || host === client) {
-          this.send(client.wire, { t: 'gone', listingId: msg.listingId });
-          return;
-        }
-        // um pedido por vez para cada pessoa
-        for (const [id, knock] of this.knocks) if (knock.from === client.wire || now - knock.at > KNOCK_TTL_MS) this.knocks.delete(id);
-        const knockId = randomId(12);
-        this.knocks.set(knockId, { from: client.wire, to: host.wire, at: now });
-        this.send(host.wire, { t: 'knock', knock: { knockId, name: sanitizeName(msg.name), color: sanitizeColor(msg.color), peerId: client.peerId } });
-        this.send(client.wire, { t: 'knocked', knockId, listingId: msg.listingId });
-        return;
-      }
-      case 'answer': {
-        const knock = typeof msg.knockId === 'string' ? this.knocks.get(msg.knockId) : undefined;
-        if (!knock || knock.to !== client.wire) return;
-        this.knocks.delete(msg.knockId);
-        this.send(knock.from, { t: 'answer', knockId: msg.knockId, accept: !!msg.accept });
         return;
       }
       default:
@@ -246,7 +210,6 @@ class LobbyServer {
     clearTimeout(this.pending);
     for (const c of this.clients.values()) c.wire.close();
     this.clients.clear();
-    this.knocks.clear();
     this.peer.destroy();
   }
 }
@@ -256,15 +219,12 @@ export interface LobbyEvents {
   online(online: boolean): void;
   /** (host) alguém quer entrar. */
   knock(knock: Knock): void;
-  /** (quem pediu) o pedido chegou ao host. */
-  knocked(knockId: string, listingId: string): void;
-  /** (quem pediu) o host respondeu; aceitando, o código chega em seguida por invite(). */
-  answer(knockId: string, accept: boolean): void;
-  /** (quem pediu) o código da sala, entregue direto pelo host. */
-  invite(knockId: string, code: string): void;
-  /** (quem pediu) a sala saiu da lista antes do pedido chegar. */
-  gone(listingId: string): void;
+  /** (host) quem pediu desistiu ou caiu antes da resposta. */
+  knockGone(knockId: string): void;
 }
+
+/** Resultado de um pedido para entrar. */
+export type KnockResult = { accept: true; code: string } | { accept: false; reason: 'refused' | 'unreachable' | 'timeout' | 'cancelled' };
 
 /** Cada aba do Órbita: conecta ao ponto de encontro (ou vira ele) e mantém a lista. */
 export class LobbyClient {
@@ -280,10 +240,12 @@ export class LobbyClient {
   private attempts = 0;
   private connecting = false;
   private stopped = false;
-  /** Pedidos que eu fiz e ainda esperam o código. */
-  private waiting = new Set<string>();
-  /** Pedidos recebidos (sou host): para entregar o código ao peer certo. */
-  private received = new Map<string, Knock>();
+  /** Pedidos recebidos (sou host): a conexão direta com quem pediu. */
+  private received = new Map<string, DataConnection>();
+  /** Último pedido de cada peer (um a cada 4 s). */
+  private knockAt = new Map<string, number>();
+  /** O meu pedido em andamento (para cancelar). */
+  private outgoing: { conn: DataConnection; finish: (r: KnockResult) => void } | null = null;
 
   constructor(private ev: LobbyEvents) {}
 
@@ -300,7 +262,8 @@ export class LobbyClient {
       }
       this.peer = peer;
       peer.on('connection', (conn) => {
-        if ((conn.metadata as { kind?: string } | undefined)?.kind === 'orbita-invite') this.receiveInvite(conn);
+        if ((conn.metadata as { kind?: string } | undefined)?.kind === 'orbita-knock') this.receiveKnock(conn);
+        else conn.close();
       });
       peer.on('error', (err) => {
         if (err.type !== 'peer-unavailable') console.warn('[saguão]', err.type, err.message);
@@ -338,53 +301,102 @@ export class LobbyClient {
     }, wait);
   }
 
-  knock(listingId: string, name: string, color: string): boolean {
-    if (!this.wire) return false;
-    this.wire.send({ t: 'knock', listingId, name, color } satisfies ToServer);
-    return true;
-  }
-
-  cancelKnock(knockId: string) {
-    this.waiting.delete(knockId);
-  }
-
-  /** (host) Responde a um pedido; aceitando, entrega o código direto para quem pediu. */
-  answer(knockId: string, accept: boolean, code?: string) {
-    const knock = this.received.get(knockId);
-    this.received.delete(knockId);
-    this.wire?.send({ t: 'answer', knockId, accept } satisfies ToServer);
-    if (accept && knock && code && this.peer) this.deliver(knock, code);
-  }
-
-  private deliver(knock: Knock, code: string) {
-    const conn = this.peer?.connect(knock.peerId, { reliable: true, serialization: 'raw', metadata: { kind: 'orbita-invite' } }) as DataConnection | undefined;
-    if (!conn) return;
-    const close = window.setTimeout(() => conn.close(), 20_000);
-    conn.on('open', () => {
-      conn.send(JSON.stringify({ knockId: knock.knockId, code }));
-      window.setTimeout(() => {
-        clearTimeout(close);
-        conn.close();
-      }, 3_000);
+  /**
+   * Pede para entrar: conexão direta com o host da sala (o endereço veio da lista). O pedido e o
+   * código só viajam nessa conexão.
+   */
+  knock(listing: Listing, name: string, color: string): Promise<KnockResult> {
+    this.cancelKnock();
+    const peer = this.peer;
+    if (!peer || !PEER_ID.test(listing.peer) || listing.peer === peer.id) return Promise.resolve({ accept: false, reason: 'unreachable' });
+    return new Promise((resolve) => {
+      let settled = false;
+      let opened = false;
+      const conn = peer.connect(listing.peer, { reliable: true, serialization: 'raw', metadata: { kind: 'orbita-knock' } }) as DataConnection | undefined;
+      const finish = (result: KnockResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (this.outgoing?.conn === conn) this.outgoing = null;
+        try {
+          conn?.close();
+        } catch {
+          /* já fechada */
+        }
+        resolve(result);
+      };
+      const timer = window.setTimeout(() => finish({ accept: false, reason: opened ? 'timeout' : 'unreachable' }), KNOCK_WAIT_MS);
+      if (!conn) {
+        finish({ accept: false, reason: 'unreachable' });
+        return;
+      }
+      this.outgoing = { conn, finish };
+      conn.on('open', () => {
+        opened = true;
+        conn.send(JSON.stringify({ name, color }));
+      });
+      conn.on('data', (data) => {
+        if (typeof data !== 'string' || data.length > 200) return;
+        let msg: { accept?: unknown; code?: unknown };
+        try {
+          msg = JSON.parse(data);
+        } catch {
+          return;
+        }
+        if (msg.accept === true && typeof msg.code === 'string' && CODE.test(msg.code)) finish({ accept: true, code: msg.code });
+        else finish({ accept: false, reason: 'refused' });
+      });
+      conn.on('close', () => finish({ accept: false, reason: opened ? 'refused' : 'unreachable' }));
+      conn.on('error', () => finish({ accept: false, reason: opened ? 'refused' : 'unreachable' }));
     });
   }
 
-  private receiveInvite(conn: DataConnection) {
-    const timer = window.setTimeout(() => conn.close(), 20_000);
-    conn.on('data', (data) => {
-      clearTimeout(timer);
+  cancelKnock() {
+    this.outgoing?.finish({ accept: false, reason: 'cancelled' });
+    this.outgoing = null;
+  }
+
+  /** (host) Responde a um pedido: o código (se aceitar) vai pela conexão direta com quem pediu. */
+  answer(knockId: string, accept: boolean, code?: string) {
+    const conn = this.received.get(knockId);
+    this.received.delete(knockId);
+    if (!conn) return;
+    try {
+      conn.send(JSON.stringify(accept && code ? { accept: true, code } : { accept: false }));
+    } catch {
+      /* caiu */
+    }
+    window.setTimeout(() => conn.close(), 1_500);
+  }
+
+  /** (host) Alguém abriu uma conexão para pedir para entrar. */
+  private receiveKnock(conn: DataConnection) {
+    const now = Date.now();
+    // sem sala anunciada, muitos pedidos ou pedidos seguidos do mesmo peer: fecha
+    if (!this.announced || this.received.size >= MAX_KNOCKS || now - (this.knockAt.get(conn.peer) ?? 0) < KNOCK_GAP_MS) {
       conn.close();
-      if (typeof data !== 'string' || data.length > 200) return;
-      let msg: { knockId?: unknown; code?: unknown };
+      return;
+    }
+    this.knockAt.set(conn.peer, now);
+    if (this.knockAt.size > 200) this.knockAt.clear();
+    let knockId = '';
+    const timer = window.setTimeout(() => conn.close(), KNOCK_WAIT_MS);
+    conn.on('data', (data) => {
+      if (knockId || typeof data !== 'string' || data.length > 300) return;
+      let msg: { name?: unknown; color?: unknown };
       try {
         msg = JSON.parse(data);
       } catch {
+        conn.close();
         return;
       }
-      // só aceita o código de um pedido que eu fiz (e que o ponto de encontro disse que foi aceito ou ainda espera)
-      if (typeof msg.knockId !== 'string' || !this.waiting.has(msg.knockId) || typeof msg.code !== 'string' || !CODE.test(msg.code)) return;
-      this.waiting.delete(msg.knockId);
-      this.ev.invite(msg.knockId, msg.code);
+      knockId = randomId(12);
+      this.received.set(knockId, conn);
+      this.ev.knock({ knockId, name: sanitizeName(msg.name), color: sanitizeColor(msg.color), peerId: conn.peer });
+    });
+    conn.on('close', () => {
+      clearTimeout(timer);
+      if (knockId && this.received.delete(knockId)) this.ev.knockGone(knockId);
     });
   }
 
@@ -451,7 +463,7 @@ export class LobbyClient {
           return;
         }
         finish(true);
-        this.adopt(new PeerWire(conn));
+        this.adopt(new PeerWire(conn, MAX_CHUNKS));
       });
       conn.on('close', () => finish(false));
     });
@@ -495,7 +507,6 @@ export class LobbyClient {
   private lost() {
     if (!this.wire) return;
     this.wire = null;
-    this.received.clear();
     this.ev.online(false);
     this.ev.rooms([]);
     if (this.server) {
@@ -525,32 +536,12 @@ export class LobbyClient {
           this.ev.rooms(
             msg.rooms.slice(0, MAX_LISTINGS).flatMap((r) => {
               const info = validListing(r);
-              return info && typeof r.id === 'string' && /^[a-z0-9]{6,16}$/.test(r.id) ? [{ id: r.id, ...info }] : [];
+              return info && typeof r.id === 'string' && /^[a-z0-9]{6,16}$/.test(r.id) && typeof r.peer === 'string' && PEER_ID.test(r.peer)
+                ? [{ id: r.id, peer: r.peer, ...info }]
+                : [];
             }),
           );
         }
-        return;
-      case 'knock': {
-        const k = msg.knock;
-        if (!k || typeof k.knockId !== 'string' || typeof k.peerId !== 'string') return;
-        const knock: Knock = { knockId: k.knockId, peerId: k.peerId, name: sanitizeName(k.name), color: sanitizeColor(k.color) };
-        this.received.set(knock.knockId, knock);
-        this.ev.knock(knock);
-        return;
-      }
-      case 'knocked':
-        if (typeof msg.knockId !== 'string') return;
-        this.waiting.clear();
-        this.waiting.add(msg.knockId);
-        this.ev.knocked(msg.knockId, clampText(msg.listingId, 16));
-        return;
-      case 'answer':
-        if (typeof msg.knockId !== 'string') return;
-        if (!msg.accept) this.waiting.delete(msg.knockId);
-        this.ev.answer(msg.knockId, !!msg.accept);
-        return;
-      case 'gone':
-        this.ev.gone(clampText(msg.listingId, 16));
         return;
       default:
         return;

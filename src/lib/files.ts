@@ -24,6 +24,9 @@ export interface TransferEvents {
   failed(fileId: string, reason: 'gone' | 'lost'): void;
 }
 
+/** Arquivos que rodam programas ao abrir: o chat avisa antes de baixar. */
+export const isRisky = (name: string) => /\.(exe|msi|bat|cmd|com|scr|pif|ps1|vbs|vbe|js|jse|wsf|wsh|hta|jar|apk|lnk|reg|cpl|dll|sh|appimage|dmg|pkg)$/i.test(name.trim());
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -58,6 +61,8 @@ export class FileShare {
     peer.on('connection', (conn) => {
       const meta = conn.metadata as { kind?: string; fileId?: unknown } | undefined;
       if (meta?.kind === 'file') this.serve(conn, typeof meta.fileId === 'string' ? meta.fileId : '');
+      // ninguém mais abre conexões de dados com este peer: o resto é fechado
+      else conn.close();
     });
   }
 
@@ -92,7 +97,6 @@ export class FileShare {
     this.downloads.set(fileId, conn);
     const parts: ArrayBuffer[] = [];
     let size = -1;
-    const mime = attachment.mime;
     let received = 0;
     let lastReport = 0;
     let finished = false;
@@ -114,7 +118,8 @@ export class FileShare {
         this.ev.failed(fileId, error);
         return;
       }
-      saveBlob(new Blob(parts, { type: mime }), attachment.name);
+      // tipo genérico: o navegador só baixa, nunca abre o arquivo dentro do site
+      saveBlob(new Blob(parts, { type: 'application/octet-stream' }), attachment.name);
       this.ev.done(fileId);
     };
     const touch = () => {

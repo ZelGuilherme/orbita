@@ -33,6 +33,8 @@ export function parseIceServers(json: string): RTCIceServer[] | null {
 function peerLog(level: number, ...rest: unknown[]) {
   const text = rest.map((r) => (r instanceof Error ? r.message : String(r))).join(' ');
   if (/Could not connect to peer/.test(text)) return;
+  // disputa esperada por um ID fixo (sala ou lista de órbitas): quem chamou já trata o erro
+  if (/is taken|^Aborting!$/.test(text)) return;
   if (level <= 1) console.error('PeerJS:', ...rest);
   else console.warn('PeerJS:', ...rest);
 }

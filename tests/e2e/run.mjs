@@ -17,6 +17,8 @@ mkdirSync(SHOTS, { recursive: true });
 const CHANNEL = process.env.E2E_BROWSER ?? (process.platform === 'win32' ? 'msedge' : 'chrome');
 
 const t0 = Date.now();
+/** Cada execução usa um ponto de encontro (lista de órbitas) só seu, longe do de verdade. */
+const LOBBY = `orbita-e2e-${Math.random().toString(36).slice(2, 10)}`;
 const log = (...args) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1).padStart(5)}s]`, ...args);
 
 const server = await createServer({ root, logLevel: 'error', server: { port: 5299 } });
@@ -41,7 +43,8 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
   const context = await browser.newContext({ viewport, permissions: ['microphone', 'camera'], hasTouch: viewport.width < 500 });
   opened.push(context);
   await context.addInitScript(
-    ([n, c, extra]) => {
+    ([n, c, extra, lobby]) => {
+      localStorage.setItem('orbita.lobbyId', lobby);
       if (!sessionStorage.getItem('e2e.init')) {
         sessionStorage.setItem('e2e.init', '1');
         localStorage.setItem(
@@ -79,7 +82,7 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
         return stream;
       };
     },
-    [name, color, settings],
+    [name, color, settings, LOBBY],
   );
   const page = await context.newPage();
   page.on('console', (msg) => {
@@ -565,12 +568,63 @@ async function passarCoroa(opened) {
   log('  sala encerrada');
 }
 
+/** Lista de órbitas: pedir para entrar, aceitar, recusar, esconder e o ponto de encontro trocando de aba. */
+async function saguao(opened) {
+  const a = await newUser('Ana', '#8b5cf6', opened);
+  const b = await newUser('Bruno', '#22d3ee', opened);
+  const c = await newUser('Carla', '#f472b6', opened);
+  const code = await createRoom(a);
+  const roomName = await a.page.evaluate(() => window.__orbita.getApp().room.name);
+  await b.page.goto(BASE);
+  await c.page.goto(BASE);
+  const listed = (page) => waitFor(page, (n) => window.__orbita.getApp().lobbyRooms.some((r) => r.name === n), roomName, 40_000);
+  await listed(b.page);
+  await listed(c.page);
+  const leak = await b.page.evaluate((cd) => JSON.stringify(window.__orbita.getApp().lobbyRooms).includes(cd), code);
+  if (leak) throw new Error('o código da sala vazou na lista');
+  log('  órbita apareceu na lista (sem o código) para quem está na tela inicial');
+
+  // Bruno pede para entrar; a Ana aceita; ele entra sem nunca ter visto o código
+  await b.page.locator('.lobby-room', { hasText: roomName }).getByRole('button', { name: /Pedir para entrar/ }).click();
+  await a.page.locator('.knock', { hasText: 'Bruno' }).waitFor({ timeout: 20_000 });
+  await a.page.locator('.knock', { hasText: 'Bruno' }).getByRole('button', { name: 'Aceitar' }).click();
+  await waitFor(b.page, (cd) => window.__orbita.getApp().phase === 'room' && window.__orbita.getApp().code === cd, code, 40_000);
+  log('  pedido aceito: Bruno entrou na órbita');
+
+  // Carla pede; a Ana recusa
+  await c.page.locator('.lobby-room', { hasText: roomName }).getByRole('button', { name: /Pedir para entrar/ }).click();
+  await a.page.locator('.knock', { hasText: 'Carla' }).waitFor({ timeout: 20_000 });
+  await a.page.locator('.knock', { hasText: 'Carla' }).getByRole('button', { name: /Recusar/ }).click();
+  await waitFor(c.page, () => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('recusou')), null, 20_000);
+  if (await c.page.evaluate(() => window.__orbita.getApp().phase !== 'landing')) throw new Error('a Carla entrou mesmo recusada');
+  log('  pedido recusado: Carla continuou de fora');
+
+  // esconder e mostrar de novo
+  await a.page.locator('.people__room').click();
+  await a.page.getByRole('menuitem', { name: /Esconder da lista/ }).click();
+  await waitFor(c.page, (n) => !window.__orbita.getApp().lobbyRooms.some((r) => r.name === n), roomName, 20_000);
+  await a.page.locator('.people__room').click();
+  await a.page.getByRole('menuitem', { name: /Mostrar na lista/ }).click();
+  await listed(c.page);
+  log('  host escondeu e mostrou a órbita na lista');
+  await shot(c.page, 'saguao');
+
+  // quem segura o ponto de encontro fecha: outra aba assume e a sala volta para a lista
+  const holder = (await Promise.all([a, b, c].map((u) => u.page.evaluate(() => !!window.__orbitaLobby?.isServer)))).findIndex(Boolean);
+  log('  ponto de encontro está com', ['Ana', 'Bruno', 'Carla'][holder] ?? 'ninguém visível');
+  await a.context.close();
+  await waitFor(b.page, () => window.__orbita.getApp().isHost === true, null, 60_000);
+  await waitFor(c.page, (n) => window.__orbita.getApp().lobbyRooms.some((r) => r.name === n && r.hostName === 'Bruno'), roomName, 90_000);
+  log('  Ana (host e ponto de encontro) saiu: a lista voltou com o Bruno de host');
+}
+
 // ───────────────────────── execução ─────────────────────────
 
 let failed = false;
 for (const [name, scenario] of [
   ['chamada completa + queda do host', chamadaCompleta],
   ['passar a coroa + celular', passarCoroa],
+  ['lista de órbitas (saguão)', saguao],
 ]) {
   // E2E_ONLY=trecho roda só os cenários cujo nome contém o trecho
   if (process.env.E2E_ONLY && !name.includes(process.env.E2E_ONLY)) continue;

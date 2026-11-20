@@ -83,6 +83,7 @@ export function createRoom(code: string, name: string, hostId: string): HubInit 
       hostId,
       createdAt: now,
       locked: false,
+      listed: true,
       epoch: 1,
       banned: [],
       members: [],
@@ -565,6 +566,10 @@ export class Hub {
         this.system(
           this.state.locked ? '🔒 O host trancou a órbita: ninguém novo pode entrar.' : '🔓 O host destrancou a órbita.',
         );
+        this.pushState();
+        return;
+      case 'listed':
+        this.state.listed = !!action.listed;
         this.pushState();
         return;
       case 'rename':

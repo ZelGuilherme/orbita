@@ -7,6 +7,7 @@ import { errorMessage } from '../lib/util';
 import { appLikelyInstalled, canInstall, isStandalone, onInstallChange, openInApp, promptInstall } from '../lib/install';
 import { planetBackground, sanitizeName } from '../lib/util';
 import { setApp, toast, useApp } from '../store';
+import { LobbyList } from './Lobby';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { cx } from './ui';
@@ -264,6 +265,7 @@ export function Landing() {
             </a>
           </div>
         </form>
+        <LobbyList />
       </main>
     </div>
   );

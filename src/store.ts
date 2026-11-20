@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LinkQuality, LiveSurface } from './lib/media';
+import type { Knock, Listing } from './lib/lobby';
 import type { ChatMessage, LiveInfo, RoomState } from './lib/protocol';
 import type { EndReason } from './lib/session';
 import { loadLiveVolumes, loadPen, loadProfile, loadSettings, loadUiPrefs, loadVolumes, type PenPrefs, type Profile, type Settings } from './lib/storage';
@@ -112,6 +113,13 @@ export interface AppState {
   chatWidth: number | null;
   /** Saiu uma versão nova do Órbita. */
   updateReady: boolean;
+  /** Lista de órbitas abertas (do ponto de encontro). */
+  lobbyRooms: Listing[];
+  lobbyOnline: boolean;
+  /** Meu pedido para entrar numa órbita da lista. */
+  knocking: { listingId: string; roomName: string; knockId?: string; accepted?: boolean } | null;
+  /** (host) Pedidos para entrar na minha órbita. */
+  knocks: Array<Knock & { at: number }>;
   /** Já fechei a dica da janela flutuante nesta live. */
   floatTipClosed: boolean;
   /** Mostrar a prévia da minha live mesmo transmitindo a tela inteira (espelho infinito). */
@@ -161,6 +169,7 @@ const roomDefaults = () => ({
   floatTipClosed: false,
   ownPreview: false,
   floating: false,
+  knocks: [],
   modal: null,
 });
 
@@ -181,6 +190,9 @@ export const useApp = create<AppState>()(() => ({
   orbitHidden: loadUiPrefs().orbitHidden,
   pen: loadPen(),
   updateReady: false,
+  lobbyRooms: [],
+  lobbyOnline: false,
+  knocking: null,
   ...roomDefaults(),
 }));
 

@@ -3,6 +3,8 @@ import {
   ChevronDown,
   Copy,
   Crown,
+  Eye,
+  EyeOff,
   HeadphoneOff,
   Headphones,
   Lock,
@@ -16,7 +18,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { copyInvite, openLive, requestLeave, setLocked, toggleDeafen, toggleMic } from '../controller';
+import { copyInvite, openLive, requestLeave, setListed, setLocked, toggleDeafen, toggleMic } from '../controller';
 import type { Member } from '../lib/protocol';
 import { setApp, useApp, voiceChannelOf } from '../store';
 import { openMemberCard } from './MemberCard';
@@ -84,6 +86,7 @@ export function People() {
 function RoomMenu({ onClose }: { onClose: () => void }) {
   const isHost = useApp((s) => s.isHost);
   const locked = useApp((s) => !!s.room?.locked);
+  const listed = useApp((s) => s.room?.listed !== false);
   const run = (fn: () => void) => () => {
     onClose();
     fn();
@@ -102,6 +105,9 @@ function RoomMenu({ onClose }: { onClose: () => void }) {
             </button>
             <button type="button" role="menuitem" onClick={run(() => setLocked(!locked))}>
               {locked ? <LockOpen size={16} /> : <Lock size={16} />} {locked ? 'Destrancar órbita' : 'Trancar órbita'}
+            </button>
+            <button type="button" role="menuitem" onClick={run(() => setListed(!listed))}>
+              {listed ? <EyeOff size={16} /> : <Eye size={16} />} {listed ? 'Esconder da lista de órbitas' : 'Mostrar na lista de órbitas'}
             </button>
           </>
         )}

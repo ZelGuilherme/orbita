@@ -708,3 +708,47 @@
 .user-panel__me .planet {
   margin: 0 5px;
 }
+
+/* ───────── pedidos para entrar (host) ───────── */
+
+.knocks {
+  position: absolute;
+  z-index: 30;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
+  width: min(460px, calc(100% - 24px));
+}
+
+.knock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--bg-1);
+  border: 1px solid rgba(139, 92, 246, 0.55);
+  box-shadow: var(--shadow);
+  animation: knock-in 0.25s ease-out;
+}
+
+.knock__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+
+@keyframes knock-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .knock {
+    animation: none;
+  }
+}

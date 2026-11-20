@@ -1,5 +1,6 @@
 import { APP_NAME, MAX_MESSAGES_PER_CHANNEL, SOUND_COOLDOWN_MS, type SoundId } from './lib/config';
 import { FileShare, saveBlob, type TransferEvents } from './lib/files';
+import { LobbyClient, type Knock } from './lib/lobby';
 import { allowFx, clearDrawing, drawStroke, dropDrawing, emitFx, eraseDrawing, newFxLimits, setDrawing, validStrokes } from './lib/fx';
 import { baseId } from './lib/hub';
 import {
@@ -61,6 +62,8 @@ import { getApp, resetRoomState, setApp, textChannelOf, toast, useApp, voiceChan
 let session: Session | null = null;
 let media: MediaEngine | null = null;
 let files: FileShare | null = null;
+let lobby: LobbyClient | null = null;
+let knockTimer = 0;
 let typingSentAt = 0;
 let viewersTimer = 0;
 let initialized = false;
@@ -1189,6 +1192,117 @@ export const kick = (memberId: string, ban = false) => admin({ kind: 'kick', mem
 export const serverMute = (memberId: string, muted: boolean) => admin({ kind: 'mute', memberId, muted });
 export const transferHost = (memberId: string) => admin({ kind: 'transfer', memberId });
 export const setLocked = (locked: boolean) => admin({ kind: 'lock', locked });
+/** Host: mostra ou esconde a órbita na lista de órbitas abertas. */
+export const setListed = (listed: boolean) => admin({ kind: 'listed', listed });
+
+// ───────────────────────── lista de órbitas (saguão) ─────────────────────────
+
+function startLobby() {
+  if (lobby) return;
+  lobby = new LobbyClient({
+    rooms: (lobbyRooms) => setApp({ lobbyRooms }),
+    online: (lobbyOnline) => setApp({ lobbyOnline }),
+    knock: onKnock,
+    knocked: (knockId, listingId) =>
+      setApp((s) => (s.knocking && s.knocking.listingId === listingId ? { knocking: { ...s.knocking, knockId } } : s)),
+    answer: (knockId, accept) => {
+      const k = getApp().knocking;
+      if (!k || k.knockId !== knockId) return;
+      if (accept) {
+        setApp({ knocking: { ...k, accepted: true } });
+        return;
+      }
+      clearTimeout(knockTimer);
+      setApp({ knocking: null });
+      toast('O host recusou o pedido.', 'error');
+    },
+    invite: (knockId, code) => {
+      const k = getApp().knocking;
+      if (!k || k.knockId !== knockId) return;
+      clearTimeout(knockTimer);
+      setApp({ knocking: null });
+      if (session || getApp().phase !== 'landing') return;
+      toast('Pedido aceito! Entrando na órbita…', 'success');
+      void enterRoom('join', code);
+    },
+    gone: (listingId) => {
+      if (getApp().knocking?.listingId !== listingId) return;
+      clearTimeout(knockTimer);
+      setApp({ knocking: null });
+      toast('Essa órbita não está mais na lista.');
+    },
+  });
+  void lobby.start();
+  if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__orbitaLobby = lobby;
+  useApp.subscribe((s, prev) => {
+    if (s.room !== prev.room || s.isHost !== prev.isHost || s.phase !== prev.phase || s.profile !== prev.profile) syncAnnounce();
+  });
+}
+
+/** Host: a minha órbita na lista (sem o código), a menos que eu tenha escondido. */
+function syncAnnounce() {
+  const s = getApp();
+  if (!lobby) return;
+  const listed = s.phase === 'room' && s.isHost && !!s.room && s.room.listed !== false;
+  lobby.announce(
+    listed && s.room
+      ? { name: s.room.name, hostName: s.profile.name, hostColor: s.profile.color, members: s.room.members.filter((m) => !m.reconnecting).length, locked: s.room.locked }
+      : null,
+  );
+}
+
+/** Pedir para entrar numa órbita da lista: o código só vem se o host aceitar. */
+export function knockRoom(listingId: string) {
+  const s = getApp();
+  const room = s.lobbyRooms.find((r) => r.id === listingId);
+  if (!lobby || !room || s.knocking || session) return;
+  const name = s.profile.name;
+  if (!lobby.knock(listingId, name, s.profile.color)) {
+    toast('Sem conexão com a lista de órbitas agora. Tente de novo.', 'error');
+    return;
+  }
+  setApp({ knocking: { listingId, roomName: room.name } });
+  clearTimeout(knockTimer);
+  knockTimer = window.setTimeout(() => {
+    if (getApp().knocking?.listingId !== listingId) return;
+    const knockId = getApp().knocking?.knockId;
+    if (knockId) lobby?.cancelKnock(knockId);
+    setApp({ knocking: null });
+    toast('O host não respondeu. Tente de novo mais tarde.', 'error');
+  }, 90_000);
+}
+
+export function cancelKnock() {
+  const k = getApp().knocking;
+  if (k?.knockId) lobby?.cancelKnock(k.knockId);
+  clearTimeout(knockTimer);
+  setApp({ knocking: null });
+}
+
+function onKnock(knock: Knock) {
+  const s = getApp();
+  if (!s.isHost || !s.room || s.knocks.length >= 8 || s.knocks.some((k) => k.knockId === knock.knockId)) {
+    lobby?.answer(knock.knockId, false);
+    return;
+  }
+  setApp({ knocks: [...s.knocks, { ...knock, at: Date.now() }] });
+  sfx.mention();
+  // sem resposta em 80 s, recusa (quem pediu desiste em 90 s)
+  window.setTimeout(() => {
+    if (getApp().knocks.some((k) => k.knockId === knock.knockId)) answerKnock(knock.knockId, false);
+  }, 80_000);
+}
+
+/** Host: aceitar entrega o código direto para quem pediu; recusar só avisa. */
+export function answerKnock(knockId: string, accept: boolean) {
+  const s = getApp();
+  if (accept && s.room?.locked) {
+    toast('A órbita está trancada: destranque para a pessoa conseguir entrar.', 'error');
+    return;
+  }
+  setApp({ knocks: s.knocks.filter((k) => k.knockId !== knockId) });
+  lobby?.answer(knockId, accept && s.isHost, accept && s.isHost ? (s.code ?? undefined) : undefined);
+}
 export const renameRoom = (name: string) => admin({ kind: 'rename', name });
 
 // ───────────────────────── perfil e preferências ─────────────────────────
@@ -1455,7 +1569,11 @@ export function initController() {
     if (!session && getApp().phase !== 'handoff') setApp({ inviteCode: inviteFromHash() });
   });
   window.addEventListener('storage', syncFromOtherWindow);
-  window.addEventListener('pagehide', () => session?.destroyNow());
+  window.addEventListener('pagehide', () => {
+    session?.destroyNow();
+    lobby?.stop();
+  });
+  startLobby();
   window.addEventListener('beforeunload', (e) => {
     const s = getApp();
     if (session && s.isHost && (s.room?.members.length ?? 0) > 1) {

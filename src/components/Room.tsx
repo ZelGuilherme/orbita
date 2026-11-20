@@ -5,6 +5,7 @@ import { setApp, useApp } from '../store';
 import { AudioRenderer } from './AudioRenderer';
 import { CallView } from './CallView';
 import { ChatPanel } from './ChatPanel';
+import { KnockRequests } from './Lobby';
 import { MemberCard } from './MemberCard';
 import { People } from './People';
 import { cx } from './ui';
@@ -45,6 +46,7 @@ export function Room() {
             </button>
           </div>
         )}
+        <KnockRequests />
         <CallView />
       </main>
       <ChatPanel />

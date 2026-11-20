@@ -99,6 +99,8 @@ export interface RoomState {
   members: Member[];
   /** IDs de perfil banidos. */
   banned: string[];
+  /** Aparece na lista de órbitas abertas (o host pode esconder). Ausente = sim. */
+  listed?: boolean;
 }
 
 export interface ImageAttachment {
@@ -161,6 +163,7 @@ export type AdminAction =
   | { kind: 'mute'; memberId: string; muted: boolean }
   | { kind: 'transfer'; memberId: string; /** o host atual está saindo da sala */ leave?: boolean }
   | { kind: 'lock'; locked: boolean }
+  | { kind: 'listed'; listed: boolean }
   | { kind: 'rename'; name: string }
   | { kind: 'end' };
 

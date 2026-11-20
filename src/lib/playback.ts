@@ -14,7 +14,6 @@ export const MAX_VOLUME = 300;
 
 let ctx: AudioContext | null = null;
 let sinkId = '';
-let bus: GainNode | null = null;
 
 type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
 
@@ -29,17 +28,6 @@ function context(): AudioContext {
 
 /** O contexto de áudio de reprodução (o mesmo da saída escolhida). */
 export const playbackContext = () => context();
-
-/** Saída dos sons do soundboard (a gravação também escuta daqui). */
-export function soundBus(): GainNode {
-  const c = context();
-  if (!bus || bus.context !== c) {
-    bus = c.createGain();
-    bus.gain.value = 0.7;
-    bus.connect(c.destination);
-  }
-  return bus;
-}
 
 function applySink() {
   const c = ctx as SinkContext | null;

@@ -69,8 +69,6 @@ export interface AppState {
   speaking: Record<string, boolean>;
   /** Ping e perda de pacotes da voz de cada pessoa. */
   quality: Record<string, LinkQuality>;
-  /** Até quando o meu soundboard está esperando (um som a cada 2 s). */
-  soundCooldown: number;
   /** Fotos de perfil de quem está na sala. */
   avatars: Record<string, string>;
   /** Mensagem que estou respondendo (id). */
@@ -154,7 +152,6 @@ const roomDefaults = () => ({
   typing: {},
   speaking: {},
   quality: {},
-  soundCooldown: 0,
   avatars: {},
   replyTo: null,
   transfers: {},

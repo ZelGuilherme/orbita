@@ -1,4 +1,4 @@
-import { APP_NAME, MAX_MESSAGES_PER_CHANNEL, SOUND_COOLDOWN_MS, type SoundId } from './lib/config';
+import { APP_NAME, MAX_MESSAGES_PER_CHANNEL } from './lib/config';
 import { canDownloadSize, FileShare, saveBlob, type TransferEvents } from './lib/files';
 import { forgetFixedRoom, getFixedRoom, listFixedRooms, saveFixedRoom } from './lib/fixedRooms';
 import { LobbyClient, type Knock } from './lib/lobby';
@@ -35,7 +35,6 @@ import { clampVolume, resumePlayback } from './lib/playback';
 import type { AdminAction, Attachment, ChatMessage, FileAttachment, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
 import { CallRecording, canRecord, ClipBuffer, extensionOf, Mixer } from './lib/recorder';
-import { playSoundboard, SOUNDS, validSound } from './lib/soundboard';
 import { setSoundsEnabled, sfx } from './lib/sounds';
 import { watchForUpdates } from './lib/update';
 import {
@@ -139,7 +138,6 @@ function makeHandlers(meId: string): SessionHandlers {
     },
     speaking: (memberId, on) =>
       setApp((s) => (s.speaking[memberId] === on ? s : { speaking: { ...s.speaking, [memberId]: on } })),
-    sound: onSound,
     liveViewer: (viewerId, viewerPeerId, on) => media?.onLiveViewer(viewerId, viewerPeerId, on),
     fx: onRemoteFx,
     fxSync: (streamerId, strokes) => setDrawing(streamerId, validStrokes(strokes)),
@@ -272,19 +270,6 @@ function onChat(message: ChatMessage) {
     else if (!viewing) sfx.message();
   }
   syncTitle();
-}
-
-/** Alguém da chamada tocou um som do soundboard (cada um toca o seu). */
-function onSound(from: string, id: string) {
-  const s = getApp();
-  if (!s.inCall || s.deafened || !validSound(id)) return;
-  const mine = from === s.meId;
-  if (!mine && !s.settings.soundboardOthers) return;
-  playSoundboard(id);
-  if (!mine) {
-    const name = s.room?.members.find((m) => m.id === from)?.name ?? 'Alguém';
-    toast(`${SOUNDS[id].emoji} ${name}: ${SOUNDS[id].label}`, 'info', 2_000);
-  }
 }
 
 function onEnded(reason: EndReason) {
@@ -836,15 +821,6 @@ export async function toggleCamera() {
   } catch (err) {
     toast(`Não consegui ligar a câmera: ${errorMessage(err)}.`, 'error');
   }
-}
-
-/** Soundboard: toca um som para todo mundo da chamada (um a cada 2 s). */
-export function playSound(id: SoundId) {
-  const s = getApp();
-  if (!s.inCall || !session) return;
-  if (Date.now() < s.soundCooldown) return;
-  setApp({ soundCooldown: Date.now() + SOUND_COOLDOWN_MS });
-  session.send({ t: 'sound', id });
 }
 
 // ───────────────────────── gravação e clipes ─────────────────────────

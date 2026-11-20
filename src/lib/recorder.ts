@@ -1,10 +1,10 @@
-import { playbackContext, soundBus } from './playback';
+import { playbackContext } from './playback';
 
 /**
  * Gravação da chamada e clipes do último minuto, tudo no navegador de quem grava.
  *
  * O Mixer junta o som de todo mundo (vozes que chegam, a minha voz já com filtros, o som da
- * live em destaque e o soundboard) e, se houver live, desenha a imagem dela num canvas. O
+ * live em destaque) e, se houver live, desenha a imagem dela num canvas. O
  * relógio do desenho roda num worker: com a aba em segundo plano, os timers da página ficam
  * lentos, os do worker não.
  */
@@ -37,7 +37,6 @@ export class Mixer {
     this.keepAlive.offset.value = 0;
     this.keepAlive.connect(this.dest);
     this.keepAlive.start();
-    soundBus().connect(this.dest);
     this.audio = this.dest.stream.getAudioTracks()[0];
     this.video.muted = true;
     this.video.playsInline = true;
@@ -117,11 +116,6 @@ export class Mixer {
     this.video.srcObject = null;
     for (const node of this.inputs.values()) node.disconnect();
     this.inputs.clear();
-    try {
-      soundBus().disconnect(this.dest);
-    } catch {
-      /* já desligado */
-    }
     this.keepAlive.stop();
     this.keepAlive.disconnect();
     this.audio.stop();

@@ -196,8 +196,6 @@ export type ClientMsg =
   | { t: 'chat:react'; id: string; emoji: string }
   | { t: 'typing'; channelId: string }
   | { t: 'speaking'; on: boolean }
-  /** Soundboard: o nome do som (cada um toca o seu). */
-  | { t: 'sound'; id: string }
   /** Salvei um clipe: o host avisa no chat. */
   | { t: 'clip' }
   | { t: 'presence'; presence: Partial<Presence> }
@@ -216,7 +214,6 @@ export type HubMsg =
   | { t: 'chat:delete'; id: string; channelId: string }
   | { t: 'typing'; memberId: string; channelId: string }
   | { t: 'speaking'; memberId: string; on: boolean }
-  | { t: 'sound'; from: string; id: string }
   | { t: 'live:viewer'; viewerId: string; viewerPeerId: string; on: boolean }
   | { t: 'fx'; from: string; streamerId: string; fx: LiveFx }
   | { t: 'fx:sync'; streamerId: string; strokes: FxStroke[] }

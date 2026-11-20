@@ -393,18 +393,12 @@ function VoiceTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
 
       <VoiceFilters testMeter={settings.voiceMode !== 'vad'} />
 
-      <h4 className="settings__subtitle">Efeitos e soundboard</h4>
+      <h4 className="settings__subtitle">Efeitos de voz</h4>
       <div className="field">
         <span>Efeito na sua voz</span>
         <VoiceEffectPicker />
         <span className="hint">Só muda o que sai para a chamada. Para ouvir como fica, use “Testar microfone” e marque “Ouvir” (com fones).</span>
       </div>
-      <Switch
-        label="Ouvir os sons do soundboard dos outros"
-        hint="Os sons (buzina, palmas, sino…) ficam no botão ✨ da barra da chamada."
-        checked={settings.soundboardOthers}
-        onChange={(soundboardOthers) => updateSettings({ soundboardOthers })}
-      />
 
       <h4 className="settings__subtitle">Gravação e clipes</h4>
       <Switch

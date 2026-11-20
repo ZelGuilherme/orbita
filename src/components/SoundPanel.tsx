@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
-import { playSound, updateSettings } from '../controller';
+import { WandSparkles } from 'lucide-react';
+import { updateSettings } from '../controller';
 import type { LinkQuality } from '../lib/media';
-import { SOUND_LIST } from '../lib/soundboard';
 import { VOICE_EFFECTS } from '../lib/voicefx';
 import { useApp } from '../store';
-import { cx, Switch, useNow } from './ui';
+import { cx } from './ui';
 
 /** Efeito na minha voz: um botão por efeito. */
 export function VoiceEffectPicker() {
@@ -28,7 +27,7 @@ export function VoiceEffectPicker() {
   );
 }
 
-/** Botão "Sons e efeitos" da barra da chamada: soundboard e efeito de voz. */
+/** Botão "Efeitos de voz" da barra da chamada. */
 export function SoundButton() {
   const [open, setOpen] = useState(false);
   const effect = useApp((s) => s.settings.voiceEffect);
@@ -37,12 +36,12 @@ export function SoundButton() {
       <button
         type="button"
         className={cx('ctrl', (open || effect !== 'none') && 'is-on')}
-        data-tip={effect !== 'none' ? `Sons e efeitos (efeito: ${VOICE_EFFECTS.find((e) => e.id === effect)?.label})` : 'Sons e efeitos'}
-        aria-label="Sons e efeitos"
+        data-tip={effect !== 'none' ? `Efeitos de voz (agora: ${VOICE_EFFECTS.find((e) => e.id === effect)?.label})` : 'Efeitos de voz'}
+        aria-label="Efeitos de voz"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <Sparkles />
+        <WandSparkles />
       </button>
       {open && (
         <>
@@ -55,27 +54,11 @@ export function SoundButton() {
 }
 
 function SoundPanel() {
-  const cooldown = useApp((s) => s.soundCooldown);
-  const others = useApp((s) => s.settings.soundboardOthers);
-  const now = useNow(250);
-  const waiting = cooldown > now;
   return (
-    <div className="sound-panel" role="dialog" aria-label="Sons e efeitos">
-      <h4>Soundboard</h4>
-      <div className="sound-grid">
-        {SOUND_LIST.map((sound) => (
-          <button key={sound.id} type="button" className="sound-btn" disabled={waiting} onClick={() => playSound(sound.id)}>
-            <span className="sound-btn__emoji" aria-hidden="true">
-              {sound.emoji}
-            </span>
-            {sound.label}
-          </button>
-        ))}
-      </div>
-      <p className="sound-panel__hint">{waiting ? 'Espere um instante para o próximo som…' : 'Todo mundo da chamada ouve. Um som a cada 2 segundos.'}</p>
-      <Switch label="Ouvir os sons dos outros" checked={others} onChange={(soundboardOthers) => updateSettings({ soundboardOthers })} />
+    <div className="sound-panel" role="dialog" aria-label="Efeitos de voz">
       <h4>Efeito na sua voz</h4>
       <VoiceEffectPicker />
+      <p className="sound-panel__hint">Só muda o que sai para a chamada. Para se ouvir, use “Testar microfone” em Configurações › Voz e vídeo.</p>
     </div>
   );
 }

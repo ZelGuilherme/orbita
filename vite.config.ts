@@ -61,7 +61,7 @@ function contentSecurityPolicy(): Plugin {
         "media-src 'self' data: blob:",
         "font-src 'self' data:",
         "worker-src 'self' blob:",
-        "connect-src 'self' https: wss: ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*",
+        "connect-src 'self' data: blob: https: wss: ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*",
         "manifest-src 'self'",
         "object-src 'none'",
         "frame-src 'none'",

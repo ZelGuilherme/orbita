@@ -88,8 +88,12 @@ try {
   await a.getByRole('button', { name: /Parar a gravação/ }).click().catch(() => {});
   log('gravação ok');
   await a.getByRole('button', { name: 'Configurações' }).last().click();
-  await a.getByRole('tab', { name: /Planeta/ }).click().catch(() => {});
-  await a.waitForTimeout(4_000);
+  await a.locator('.settings__nav button', { hasText: 'Planeta' }).click();
+  // foto com a prévia 3D aberta (o three.js lê a foto data: com fetch)
+  const png = await a.screenshot({ clip: { x: 0, y: 0, width: 64, height: 64 } });
+  await a.locator('.avatar-buttons input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: png });
+  await a.waitForTimeout(5_000);
+  log('editor de planeta com foto ok');
   for (const page of [a, b]) problems.push(...(await page.evaluate(() => window.__csp ?? [])).map((v) => `violação: ${v}`));
 } catch (err) {
   problems.push(`falhou: ${err.message.split('\n').slice(0, 3).join(' | ')}`);

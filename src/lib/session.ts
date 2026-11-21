@@ -2,7 +2,8 @@ import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { APP_BUILD } from './build';
 import { HUB_TIMEOUT_MS, MAX_MESSAGES_PER_CHANNEL, MIGRATION_GIVE_UP_MS, PROTOCOL_VERSION } from './config';
-import { Hub, createRoom, hubPeerId, restoreRoom, type SavedRoom } from './hub';
+import { baseId, Hub, createRoom, hubPeerId, restoreRoom, type SavedRoom } from './hub';
+import { helloPayload, profileKey, signHello } from './identityKey';
 import { keepSignaling, openPeer, PeerOpenError } from './peer';
 import type { OrbitStyle } from './orbitPath';
 import type { PlanetStyle } from './planet';
@@ -267,9 +268,13 @@ export class Session {
 
   // ───────────────────────── conexão com o hub ─────────────────────────
 
-  private hello(rejoin: boolean): ClientMsg {
+  private async hello(rejoin: boolean, wirePeer: string): Promise<ClientMsg> {
     const me = this.state?.members.find((m) => m.id === this.meId);
+    const key = await profileKey(baseId(this.meId));
+    const ts = Date.now();
+    const proof = key ? { key: key.pub, ts, sig: await signHello(key, helloPayload(this.code, this.meId, wirePeer, ts)) } : undefined;
     return {
+      proof,
       t: 'hello',
       v: PROTOCOL_VERSION,
       member: {
@@ -301,7 +306,7 @@ export class Session {
         }
       };
       hub.attachLocal(theirs);
-      mine.send(this.hello(rejoin));
+      void this.hello(rejoin, 'local').then((hello) => mine.send(hello));
     });
   }
 
@@ -364,7 +369,7 @@ export class Session {
             finish(new JoinError('rejected', msg.reason));
           }
         };
-        wire.send(this.hello(rejoin));
+        void this.hello(rejoin, this.peer.id).then((hello) => wire.send(hello));
       });
     });
   }

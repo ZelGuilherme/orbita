@@ -202,6 +202,42 @@ async function chamadaCompleta(opened) {
   await waitFor(c.page, () => !document.querySelector('.chat-search') && !!document.querySelector('.msg'));
   log('  busca ok');
 
+  // segurança: ninguém entra com o ID de outra pessoa (nem do host) sem a chave dela
+  const hijack = (proof) =>
+    c.page.evaluate(async (fake) => {
+      const app = window.__orbita.getApp();
+      const peer = window.__orbita.session().peer;
+      const hostId = app.room.hostId;
+      const hubId = `orbita-v1-sala-${app.room.code}`;
+      return await new Promise((resolve) => {
+        const conn = peer.connect(hubId, { reliable: true, serialization: 'raw' });
+        const done = (v) => {
+          try {
+            conn.close();
+          } catch {}
+          resolve(v);
+        };
+        setTimeout(() => done('sem resposta'), 8_000);
+        conn.on('open', () => {
+          const member = { id: hostId, peerId: peer.id, name: 'Impostor', color: '#ff0000' };
+          conn.send(JSON.stringify({ t: 'hello', v: 1, member, presence: { voiceChannelId: null, micOn: false, deafened: false, cameraOn: false, live: null }, proof: fake ? { key: 'A'.repeat(87), sig: 'B'.repeat(86), ts: Date.now() } : undefined }));
+        });
+        conn.on('data', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.t === 'reject') done(`recusado: ${msg.reason}`);
+          else if (msg.t === 'welcome') done('ACEITO');
+        });
+      });
+    }, proof);
+  for (const fake of [false, true]) {
+    const result = await hijack(fake);
+    if (result !== 'recusado: invalid') throw new Error(`entrar com o ID do host ${fake ? 'com chave falsa' : 'sem chave'}: ${result}`);
+  }
+  if (!(await a.page.evaluate(() => window.__orbita.getApp().isHost && window.__orbita.getApp().room.members.every((m) => m.name !== 'Impostor')))) {
+    throw new Error('o impostor mexeu na sala');
+  }
+  log('  ninguém toma o lugar do host (nem sem chave, nem com chave falsa)');
+
   // arquivo: vai direto do computador da Ana para quem baixa
   const big = Buffer.alloc(3 * 1024 * 1024 + 321, 7);
   await a.page.locator('input[aria-label="Escolher arquivo"]').setInputFiles({ name: 'dados.bin', mimeType: 'application/octet-stream', buffer: big });

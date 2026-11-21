@@ -84,6 +84,8 @@ export interface Member extends Presence {
   orbit?: OrbitStyle;
   /** Versão do Órbita da pessoa (ausente = versão antiga, de antes do aviso). */
   build?: string;
+  /** Chave pública de identidade (provada ao entrar; ausente = versão antiga, sem prova). */
+  key?: string;
   /** Ordem de chegada: define quem herda o host se ele cair. */
   joinedAt: number;
   /** Microfone bloqueado pelo host. */
@@ -110,6 +112,10 @@ export interface RoomState {
   fixed?: boolean;
   /** Perfil de quem criou (numa órbita fixa, a coroa volta para ele quando chega). */
   ownerId?: string;
+  /** Chave de quem criou: a coroa só volta para quem provar que tem esta chave. */
+  ownerKey?: string;
+  /** Chaves banidas (quem entrou com chave é banido pela chave, não pelo ID de perfil). */
+  bannedKeys?: string[];
 }
 
 export interface ImageAttachment {
@@ -183,6 +189,8 @@ export type ClientMsg =
       t: 'hello';
       v: number;
       member: { id: string; peerId: string; name: string; color: string; avatar?: string; planet?: PlanetStyle; orbit?: OrbitStyle; build?: string };
+      /** Prova de identidade: chave pública, assinatura e a hora assinada (ver identityKey.ts). */
+      proof?: { key: string; sig: string; ts: number };
       presence: Presence;
       /** Reentrada depois de queda/migração: mantém o lugar na fila. */
       rejoinAt?: number;

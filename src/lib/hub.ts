@@ -16,6 +16,7 @@ import {
   RECONNECT_GRACE_MS,
 } from './config';
 import { addToStrokes, allowFx, eraseStrokes, newFxLimits, validFx, type FxLimits } from './fx';
+import { HELLO_WINDOW_MS, helloPayload, KEY_FORMAT, verifyHello } from './identityKey';
 import { keepSignaling, openPeer } from './peer';
 import { sanitizeOrbit } from './orbitPath';
 import { sanitizePlanet } from './planet';
@@ -48,6 +49,8 @@ import { PeerWire, type Wire } from './wire';
 interface Client {
   wire: Wire;
   memberId: string | null;
+  /** Conferindo a assinatura da entrada (não aceita outra entrada enquanto isso). */
+  checking?: boolean;
   lastSeen: number;
   helloTimer: number;
 }
@@ -74,8 +77,10 @@ export interface SavedRoom {
   code: string;
   name: string;
   ownerId: string;
+  ownerKey?: string;
   channels: RoomState['channels'];
   banned: string[];
+  bannedKeys?: string[];
   locked: boolean;
   listed: boolean;
   messages: ChatMessage[];
@@ -115,8 +120,10 @@ export function restoreRoom(saved: SavedRoom, hostId: string, hostName: string):
       listed: saved.listed !== false,
       fixed: true,
       ownerId: typeof saved.ownerId === 'string' ? saved.ownerId : baseId(hostId),
+      ownerKey: typeof saved.ownerKey === 'string' && KEY_FORMAT.test(saved.ownerKey) ? saved.ownerKey : undefined,
       epoch: 1,
       banned: Array.isArray(saved.banned) ? saved.banned.filter((b) => typeof b === 'string').slice(0, 500) : [],
+      bannedKeys: Array.isArray(saved.bannedKeys) ? saved.bannedKeys.filter((k) => typeof k === 'string' && KEY_FORMAT.test(k)).slice(0, 500) : [],
       members: [],
       channels,
     },
@@ -334,7 +341,7 @@ export class Hub {
   private handle(client: Client, msg: ClientMsg) {
     if (this.stopped || !msg || typeof msg !== 'object') return;
     if (!client.memberId) {
-      if (msg.t === 'hello') this.hello(client, msg);
+      if (msg.t === 'hello' && !client.checking) this.hello(client, msg);
       return;
     }
     const me = this.member(client.memberId);
@@ -435,7 +442,39 @@ export class Hub {
     const info = msg.member;
     const id = info && typeof info.id === 'string' && MEMBER_ID.test(info.id) ? info.id : null;
     if (!id || typeof info.peerId !== 'string' || !info.peerId) return reject('invalid');
-    if (this.state.banned.includes(baseId(id))) return reject('banned');
+    client.checking = true;
+    void this.proveIdentity(client, id, msg.proof).then((key) => {
+      client.checking = false;
+      if (this.stopped || !this.clients.has(client) || client.memberId) return;
+      if (key === false) return reject('invalid');
+      this.admit(client, msg, id, key ?? undefined, reject);
+    });
+  }
+
+  /**
+   * Quem diz ser este ID? Os IDs são públicos, então quem volta com um ID que já está na sala
+   * precisa assinar a entrada com a mesma chave de antes (senão qualquer um tomaria o lugar de
+   * outra pessoa, até o do host). Devolve a chave provada, null (entrou sem chave: versão
+   * antiga) ou false (prova errada ou faltando).
+   */
+  private async proveIdentity(client: Client, id: string, proof: Extract<ClientMsg, { t: 'hello' }>['proof']): Promise<string | null | false> {
+    const prevKey = this.member(id)?.key;
+    if (!proof || typeof proof !== 'object' || typeof proof.key !== 'string' || typeof proof.sig !== 'string') return prevKey ? false : null;
+    const ts = Number(proof.ts);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > HELLO_WINDOW_MS) return false;
+    // o peer da conexão vem do servidor de sinalização: não dá para fingir o de outra pessoa
+    const wirePeer = client.wire instanceof PeerWire ? client.wire.conn.peer : 'local';
+    const ok = await verifyHello(proof.key, helloPayload(this.state.code, id, wirePeer, ts), proof.sig);
+    if (!ok) return false;
+    // a chave pode ter mudado enquanto conferia; confere de novo
+    const now = this.member(id)?.key;
+    if (now && now !== proof.key) return false;
+    return proof.key;
+  }
+
+  private admit(client: Client, msg: Extract<ClientMsg, { t: 'hello' }>, id: string, key: string | undefined, reject: (reason: RejectReason) => void) {
+    const info = msg.member;
+    if ((key && this.state.bannedKeys?.includes(key)) || this.state.banned.includes(baseId(id))) return reject('banned');
     const prev = this.member(id);
     if (!prev && this.state.locked && id !== this.state.hostId) return reject('locked');
     if (!prev && this.state.members.length >= MAX_MEMBERS) return reject('full');
@@ -455,7 +494,9 @@ export class Hub {
       planet: sanitizePlanet(info.planet),
       orbit: sanitizeOrbit(info.orbit),
       build: typeof info.build === 'string' && /^[a-z0-9-]{3,40}$/.test(info.build) ? info.build : undefined,
-      joinedAt: prev?.joinedAt ?? this.nextJoinedAt(msg.rejoinAt),
+      key,
+      // o lugar na fila (quem herda a coroa) só se mantém para quem já estava na sala
+      joinedAt: prev?.joinedAt ?? this.nextJoinedAt(),
       voiceChannelId: null,
       micOn: true,
       deafened: false,
@@ -476,9 +517,11 @@ export class Hub {
     this.setAvatar(id, info.avatar);
     if (this.avatars.size) client.wire.send({ t: 'avatars', avatars: Object.fromEntries(this.avatars) } satisfies HubMsg);
     if (!prev && msg.rejoinAt == null) this.system(`**${member.name}** entrou na órbita.`);
+    // salas de antes das chaves: quem criou, sendo o host, registra a própria chave
+    if (key && id === this.state.hostId && !this.state.ownerKey && this.state.ownerId === baseId(id)) this.state.ownerKey = key;
     this.pushState();
-    // órbita fixa: quando quem criou chega, a coroa volta para ele
-    if (this.state.fixed && this.state.ownerId === baseId(id) && this.state.hostId !== id) {
+    // órbita fixa: quando quem criou chega (e prova com a chave), a coroa volta para ele
+    if (this.state.fixed && key && this.state.ownerKey === key && this.state.hostId !== id) {
       window.setTimeout(() => {
         if (this.closing || this.stopped || this.state.hostId === id || !this.byMember.has(id)) return;
         this.system(`👑 **${member.name}** criou esta órbita e recebeu a coroa de volta.`);
@@ -487,10 +530,7 @@ export class Hub {
     }
   }
 
-  private nextJoinedAt(rejoinAt?: number): number {
-    if (typeof rejoinAt === 'number' && rejoinAt >= this.state.createdAt && rejoinAt <= Date.now() + 60_000) {
-      return rejoinAt;
-    }
+  private nextJoinedAt(): number {
     const last = this.state.members.reduce((max, m) => Math.max(max, m.joinedAt), 0);
     return Math.max(Date.now(), last + 1);
   }
@@ -589,7 +629,9 @@ export class Hub {
       case 'kick': {
         const target = this.member(action.memberId);
         if (!target || target.id === host.id) return;
-        if (action.ban) this.state.banned = [...new Set([...this.state.banned, baseId(target.id)])];
+        // com chave, o ban vale para a chave (ninguém consegue fazer outra pessoa ser banida usando o ID dela)
+        if (action.ban && target.key) this.state.bannedKeys = [...new Set([...(this.state.bannedKeys ?? []), target.key])];
+        else if (action.ban) this.state.banned = [...new Set([...this.state.banned, baseId(target.id)])];
         const client = this.byMember.get(target.id);
         if (client) {
           client.wire.send({ t: 'kicked', ban: !!action.ban } satisfies HubMsg);
@@ -628,6 +670,7 @@ export class Hub {
       case 'fixed':
         this.state.fixed = !!action.fixed;
         this.state.ownerId ??= baseId(host.id);
+        if (this.state.ownerId === baseId(host.id)) this.state.ownerKey ??= host.key;
         this.system(
           this.state.fixed
             ? '📌 O host tornou esta órbita fixa: o link vale sempre e quem já entrou pode reabrir quando estiver vazia.'

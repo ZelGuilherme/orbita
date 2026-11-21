@@ -21,13 +21,16 @@ const noop = () => {};
 /** Pedaços de até 4800 caracteres: ≤ 14,4 KB em UTF-8, abaixo do limite seguro de 16 KB. */
 const CHUNK = 4800;
 const MAX_CHUNKS = 4000;
+/** Soma dos pedaços ainda incompletos guardados (caracteres): ninguém enche a memória de quem recebe. */
+const MAX_BUFFERED = 24_000_000;
 
 export class PeerWire implements Wire {
   readonly kind = 'peer';
   onMessage: (msg: unknown) => void = noop;
   onClose: () => void = noop;
   private closed = false;
-  private partial = new Map<string, { parts: string[]; got: number }>();
+  private partial = new Map<string, { parts: string[]; got: number; size: number }>();
+  private buffered = 0;
 
   /** @param maxChunks maior mensagem aceita, em pedaços (a lista de órbitas usa um limite bem menor). */
   constructor(
@@ -71,7 +74,7 @@ export class PeerWire implements Wire {
   close() {
     if (this.closed) return;
     this.closed = true;
-    this.partial.clear();
+    this.dropPartial();
     try {
       this.conn.close();
     } catch {
@@ -82,7 +85,7 @@ export class PeerWire implements Wire {
   private lost() {
     if (this.closed) return;
     this.closed = true;
-    this.partial.clear();
+    this.dropPartial();
     this.onClose();
   }
 
@@ -102,18 +105,32 @@ export class PeerWire implements Wire {
     if (!Number.isInteger(index) || !Number.isInteger(total) || total > this.maxChunks || index < 0 || index >= total) return;
     let entry = this.partial.get(id);
     if (!entry) {
-      if (this.partial.size > 16) this.partial.clear();
-      entry = { parts: new Array<string>(total), got: 0 };
+      if (this.partial.size > 16) this.dropPartial();
+      entry = { parts: new Array<string>(total), got: 0, size: 0 };
       this.partial.set(id, entry);
     }
     if (entry.parts[index] === undefined) {
-      entry.parts[index] = data.slice(c + 1);
+      const part = data.slice(c + 1);
+      entry.parts[index] = part;
       entry.got += 1;
+      entry.size += part.length;
+      this.buffered += part.length;
+      // mensagens pela metade demais: descarta tudo o que está incompleto
+      if (this.buffered > MAX_BUFFERED) {
+        this.dropPartial();
+        return;
+      }
     }
     if (entry.got === total) {
       this.partial.delete(id);
+      this.buffered -= entry.size;
       this.deliver(entry.parts.join(''));
     }
+  }
+
+  private dropPartial() {
+    this.partial.clear();
+    this.buffered = 0;
   }
 
   private deliver(json: string) {

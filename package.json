@@ -13,7 +13,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "node tests/e2e/run.mjs"
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test:csp": "vite build && node tests/e2e/csp-prod.mjs"
   },
   "dependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",

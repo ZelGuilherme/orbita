@@ -55,11 +55,13 @@ const TRAIL_MS = 420;
 /** Desenha o rastro do laser: segmentos que afinam e somem com a idade. */
 function drawTrail(l: Laser, now: number) {
   const pts = l.points;
+  // vira HTML: só cor hexadecimal e números passam
+  const color = /^#[0-9a-f]{6}$/i.test(l.color) ? l.color : '#f43f5e';
   let html = '';
   for (let i = 1; i < pts.length; i++) {
     const life = 1 - (now - pts[i].t) / TRAIL_MS;
     if (life <= 0) continue;
-    html += `<line x1="${pts[i - 1].x}" y1="${pts[i - 1].y}" x2="${pts[i].x}" y2="${pts[i].y}" stroke="${l.color}" stroke-opacity="${(life * 0.85).toFixed(2)}" stroke-width="${(1.5 + life * 5).toFixed(1)}" />`;
+    html += `<line x1="${pts[i - 1].x}" y1="${pts[i - 1].y}" x2="${pts[i].x}" y2="${pts[i].y}" stroke="${color}" stroke-opacity="${(life * 0.85).toFixed(2)}" stroke-width="${(1.5 + life * 5).toFixed(1)}" />`;
   }
   l.trail.innerHTML = html;
 }

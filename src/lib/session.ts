@@ -7,6 +7,7 @@ import { keepSignaling, openPeer, PeerOpenError } from './peer';
 import type { OrbitStyle } from './orbitPath';
 import type { PlanetStyle } from './planet';
 import type { ChatMessage, ClientMsg, FxStroke, HubMsg, LiveFx, Presence, RejectReason, RoomState } from './protocol';
+import { cleanMessage, cleanMessages, cleanState } from './trust';
 import { roomCode } from './util';
 import { createLocalPair, PeerWire, type Wire } from './wire';
 
@@ -368,7 +369,10 @@ export class Session {
     });
   }
 
-  private adopt(wire: Wire, state: RoomState, messages: ChatMessage[]) {
+  private adopt(wire: Wire, rawState: RoomState, rawMessages: ChatMessage[]) {
+    // o hub é outra pessoa: confere de novo o que vai parar na tela
+    const state = cleanState(rawState);
+    const messages = cleanMessages(rawMessages);
     this.wire = wire;
     this.state = state;
     this.messages = messages;
@@ -390,24 +394,31 @@ export class Session {
       case 'ping':
         this.wire?.send({ t: 'pong' } satisfies ClientMsg);
         return;
-      case 'state':
-        this.state = msg.state;
-        this.h.state(msg.state);
+      case 'state': {
+        const state = cleanState(msg.state);
+        this.state = state;
+        this.h.state(state);
         return;
+      }
       case 'chat': {
-        this.messages.push(msg.message);
-        const inChannel = this.messages.filter((m) => m.channelId === msg.message.channelId);
+        const message = cleanMessage(msg.message);
+        if (!message) return;
+        this.messages.push(message);
+        const inChannel = this.messages.filter((m) => m.channelId === message.channelId);
         if (inChannel.length > MAX_MESSAGES_PER_CHANNEL) {
           const oldest = inChannel[0];
           this.messages = this.messages.filter((m) => m !== oldest);
         }
-        this.h.chat(msg.message);
+        this.h.chat(message);
         return;
       }
-      case 'chat:update':
-        this.messages = this.messages.map((m) => (m.id === msg.message.id ? msg.message : m));
-        this.h.chatUpdate(msg.message);
+      case 'chat:update': {
+        const message = cleanMessage(msg.message);
+        if (!message) return;
+        this.messages = this.messages.map((m) => (m.id === message.id ? message : m));
+        this.h.chatUpdate(message);
         return;
+      }
       case 'chat:delete':
         this.messages = this.messages.filter((m) => m.id !== msg.id);
         this.h.chatDelete(msg.id, msg.channelId);

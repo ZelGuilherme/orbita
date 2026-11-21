@@ -1021,12 +1021,14 @@ input[type='range'] {
   pointer-events: none;
 }
 
-/* janela sem foco ou escondida: as animações de CSS (planetas girando, brilhos) ficam paradas */
-html[data-activity='blurred'] *,
-html[data-activity='blurred'] *::before,
-html[data-activity='blurred'] *::after,
-html[data-activity='hidden'] *,
-html[data-activity='hidden'] *::before,
-html[data-activity='hidden'] *::after {
+
+/*
+ * janela sem foco ou escondida: os enfeites que giram sem parar (texturas, luas, estrelas dos
+ * planetas, anel da live) ficam parados. As animações da interface (janelas abrindo etc.) não.
+ */
+html[data-activity='blurred'] :is(.planet__tex, .planet__orbit, .orn-star .planet__orn-shape, .planet.is-live),
+html[data-activity='blurred'] .planet.is-live::before,
+html[data-activity='hidden'] :is(.planet__tex, .planet__orbit, .orn-star .planet__orn-shape, .planet.is-live),
+html[data-activity='hidden'] .planet.is-live::before {
   animation-play-state: paused !important;
 }

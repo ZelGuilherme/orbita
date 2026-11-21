@@ -420,8 +420,8 @@ export function FxBar({ streamerId }: { streamerId: string }) {
   if (hidden) {
     return (
       <div className="fx-bar fx-bar--min" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-        <button type="button" className="fx-bar__show" aria-label="Mostrar as ferramentas (laser, lápis…)" onClick={() => setFxBarHidden(false)}>
-          <Pencil size={14} /> Ferramentas <ChevronUp size={14} />
+        <button type="button" className="fx-bar__show" aria-label="Mostrar as ferramentas (laser, lápis…)" data-tip="Ferramentas (laser, lápis…)" onClick={() => setFxBarHidden(false)}>
+          <ChevronUp size={13} />
         </button>
       </div>
     );
@@ -536,8 +536,8 @@ export function FxBar({ streamerId }: { streamerId: string }) {
         <Trash2 size={17} />
       </button>
       <span className="fx-bar__sep" aria-hidden="true" />
-      <button type="button" className="fx-bar__btn" aria-label="Minimizar as ferramentas" data-tip="Minimizar as ferramentas" onClick={() => setFxBarHidden(true)}>
-        <ChevronDown size={17} />
+      <button type="button" className="fx-bar__btn fx-bar__btn--min" aria-label="Minimizar as ferramentas" data-tip="Minimizar as ferramentas" onClick={() => setFxBarHidden(true)}>
+        <ChevronDown size={13} />
       </button>
     </div>
   );

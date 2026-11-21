@@ -41,8 +41,8 @@ export function OrbitModeSwitch({ compact = false }: { compact?: boolean }) {
       </div>
       {/* na faixa embaixo da live: minimizar os planetas (a live ocupa tudo) */}
       {compact && (
-        <button type="button" className="orbit3d__tool orbit-min" onClick={() => setOrbitHidden(true)}>
-          <ChevronDown size={14} /> Minimizar planetas
+        <button type="button" className="orbit-min" aria-label="Minimizar planetas" data-tip="Minimizar planetas" onClick={() => setOrbitHidden(true)}>
+          <ChevronDown size={13} />
         </button>
       )}
     </>

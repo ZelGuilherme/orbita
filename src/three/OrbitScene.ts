@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { activity, minFrameMs } from '../lib/activity';
 import { ORBIT_LIMITS, orbitClock, orbitFromDrop, orbitPosition, type OrbitStyle } from '../lib/orbitPath';
 import type { PlanetStyle } from '../lib/planet';
 import { PlanetObject } from './planetMesh';
@@ -647,8 +648,9 @@ export class OrbitScene {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
-    // no máximo ~60 quadros por segundo: em monitores de 144 Hz não gasta o dobro à toa
-    if (now - this.last < FRAME_MS) return;
+    // no máximo ~60 quadros por segundo (em monitores de 144 Hz não gasta o dobro à toa) e ~20
+    // com a janela sem foco
+    if (now - this.last < minFrameMs(FRAME_MS)) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (this.resetAnim) {
@@ -684,7 +686,8 @@ export class OrbitScene {
       entry.planet.update(dt, seconds, this.opts.still || this.opts.frozen);
     }
     this.fill.position.copy(this.camera.position);
-    if (!this.opts.still && !this.opts.frozen) {
+    // sem foco, as estrelas param de piscar
+    if (!this.opts.still && !this.opts.frozen && activity() === 'active') {
       this.skyTime.value = seconds;
       for (const f of this.flares) f.scale.setScalar(f.userData.scale * (0.9 + 0.1 * Math.sin(seconds * 1.3 + f.userData.phase)));
     }

@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { Ban, Crown, Mic, MicOff, Pencil, Radio, UserX, Volume2, VolumeX } from 'lucide-react';
 import { kick, openLive, serverMute, setLiveVolume, setVolume, toggleLocalMute, transferHost } from '../controller';
 import { baseId } from '../lib/hub';
-import { MAX_VOLUME } from '../lib/playback';
+import { MAX_VOLUME, VOLUME_STEP, volumeLabel } from '../lib/playback';
 import { formatTime, shade } from '../lib/util';
 import { setApp, useApp } from '../store';
 import { Planet } from './Planet';
@@ -72,12 +72,12 @@ export function MemberCard() {
           {!isMe && (
             <div className="member-card__section">
               <label className="field">
-                <span>Volume da voz — {volume}%</span>
+                <span>Volume da voz: {volumeLabel(volume)}</span>
                 <input
                   type="range"
                   min={0}
                   max={MAX_VOLUME}
-                  step={5}
+                  step={VOLUME_STEP}
                   value={volume}
                   style={{ '--fill': `${(volume / MAX_VOLUME) * 100}%` } as CSSProperties}
                   onChange={(e) => setVolume(member.id, Number(e.target.value))}
@@ -85,12 +85,12 @@ export function MemberCard() {
               </label>
               {member.live && (
                 <label className="field">
-                  <span>Volume da live — {liveVolume}%</span>
+                  <span>Volume da live: {volumeLabel(liveVolume)}</span>
                   <input
                     type="range"
                     min={0}
                     max={MAX_VOLUME}
-                    step={5}
+                    step={VOLUME_STEP}
                     value={liveVolume}
                     style={{ '--fill': `${(liveVolume / MAX_VOLUME) * 100}%` } as CSSProperties}
                     onChange={(e) => setLiveVolume(member.id, Number(e.target.value))}

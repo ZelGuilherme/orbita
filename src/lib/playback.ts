@@ -12,6 +12,21 @@
 
 export const MAX_VOLUME = 300;
 
+/**
+ * Tudo no Órbita toca 2x mais alto que o volume original do navegador (com o limitador segurando
+ * os picos). Os controles guardam o valor de 0 a 300 (100 = som original) e mostram de 0 a 100.
+ */
+export const LOUDNESS = 2;
+
+/** Ganho mais alto possível (controle no máximo, já com o 2x). */
+const MAX_GAIN = (MAX_VOLUME / 100) * LOUDNESS;
+
+/** O número que aparece no controle de volume (0 a 100). */
+export const volumeLabel = (value: number) => Math.round((value / MAX_VOLUME) * 100);
+
+/** Passo do controle: 1 no número mostrado. */
+export const VOLUME_STEP = MAX_VOLUME / 100;
+
 let ctx: AudioContext | null = null;
 let sinkId = '';
 
@@ -68,10 +83,10 @@ export class BoostedAudio {
     this.source.connect(this.gain).connect(this.limiter).connect(c.destination);
   }
 
-  /** Ganho linear (1 = 100%, 3 = 300%; 0 = mudo). */
+  /** Ganho linear (1 = som original, 6 = máximo; 0 = mudo). */
   setVolume(volume: number) {
     if (this.stopped) return;
-    this.gain.gain.setTargetAtTime(Math.max(0, Math.min(MAX_VOLUME / 100, volume)), this.gain.context.currentTime, 0.03);
+    this.gain.gain.setTargetAtTime(Math.max(0, Math.min(MAX_GAIN, volume)), this.gain.context.currentTime, 0.03);
   }
 
   stop() {

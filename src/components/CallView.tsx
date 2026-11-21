@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   ChevronUp,
   Crown,
@@ -8,13 +8,14 @@ import {
   LoaderCircle,
   Maximize,
   MessageSquare,
+  Minimize,
   Mic,
   MicOff,
   Phone,
   PhoneOff,
   PictureInPicture2,
   Radio,
-  RefreshCw,
+  Scissors,
   ScreenShare,
   Settings2,
   Square,
@@ -32,10 +33,10 @@ import {
   joinCall,
   leaveCall,
   openLive,
+  saveClip,
   setOrbitHidden,
   setPeopleHidden,
   showCamera,
-  reconnectLive,
   setLiveVolume,
   stopLive,
   toggleCamera,
@@ -46,9 +47,10 @@ import {
   unwatchLive,
   watchLive,
 } from '../controller';
+import { minFrameMs } from '../lib/activity';
 import { baseId } from '../lib/hub';
 import { comboLabel } from '../lib/keybinds';
-import { MAX_VOLUME } from '../lib/playback';
+import { MAX_VOLUME, VOLUME_STEP, volumeLabel } from '../lib/playback';
 import type { Member, RoomState } from '../lib/protocol';
 import { hashColor, roomInitials } from '../lib/util';
 import { hasWebGL } from '../lib/webgl';
@@ -125,8 +127,8 @@ export function CallView() {
               <Tile key={featured.id} spec={featured} big />
             </div>
             {orbitHidden ? (
-              <button type="button" className="orbit-strip__show" onClick={() => setOrbitHidden(false)}>
-                <ChevronUp size={15} /> Mostrar planetas ({members.length})
+              <button type="button" className="orbit-strip__show" aria-label="Mostrar planetas" data-tip={`Mostrar planetas (${members.length})`} onClick={() => setOrbitHidden(false)}>
+                <ChevronUp size={13} />
               </button>
             ) : (
               <div className="orbit-strip">
@@ -289,8 +291,15 @@ function OrbitStage({ members, room, onPick, compact = false }: { members: Membe
   useEffect(() => {
     if (!box.w) return;
     let raf = 0;
+    let last = -Infinity;
     const start = performance.now();
     const frame = (now: number) => {
+      // sem foco, ~20 quadros por segundo
+      if (!reduce && now - last < minFrameMs(0)) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      last = now;
       const t = reduce ? 0 : (now - start) / 1000;
       satellites.forEach((m, i) => {
         const el = nodes.current.get(m.id);
@@ -431,11 +440,20 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   const effects = !!live && (live.effects || isMe);
   const tileTool = !!big || focus === spec.id ? tool : null;
 
+  const clips = useApp((s) => s.settings.clips && s.inCall);
+  const awake = useAwake(ref);
+  const isFull = useFullscreen(ref);
+
+  // tela cheia: só a live (ou a câmera), sem os planetas
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    // a live em destaque vai para a tela cheia junto com a faixa de planetas (que dá para minimizar)
-    else void ((ref.current?.closest('.stage-featured') as HTMLElement | null) ?? ref.current)?.requestFullscreen?.().catch(() => {});
+    else void ref.current?.requestFullscreen?.().catch(() => {});
   };
+  const fullscreenButton = (
+    <IconButton label={isFull ? 'Sair da tela cheia' : 'Tela cheia'} tipPos="bottom" onClick={fullscreen}>
+      {isFull ? <Minimize size={16} /> : <Maximize size={16} />}
+    </IconButton>
+  );
   const pip = () => {
     const video = videoRef.current;
     if (video && document.pictureInPictureEnabled) void video.requestPictureInPicture().catch(() => {});
@@ -444,7 +462,15 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
   return (
     <div
       ref={ref}
-      className={cx('tile', spec.kind === 'live' && 'tile--live', spec.kind === 'cam' && speaking && 'is-speaking', big && 'tile--big')}
+      className={cx(
+        'tile',
+        spec.kind === 'live' && 'tile--live',
+        spec.kind === 'cam' && speaking && 'is-speaking',
+        big && 'tile--big',
+        awake && 'is-awake',
+        isFull && 'is-full',
+        !!tileTool && 'has-tool',
+      )}
       onDoubleClick={fullscreen}
     >
       {hideOwn ? (
@@ -499,23 +525,30 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
 
       {live && hideOwn && effects && <FxLayer streamerId={m.id} videoRef={videoRef} members={members} tool={tileTool} aspect={ownAspect} />}
 
-      <div className="tile__label">
-        {m.id === hostId && <Crown size={13} className="gold" />}
-        <span className="tile__name">
-          {m.name}
-          {isMe && ' (você)'}
-        </span>
-        {spec.kind === 'live' && <span className="live-badge">AO VIVO</span>}
-        {spec.kind === 'cam' && muted && <MicOff size={14} />}
-      </div>
-
-      {live && (
-        <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <QuickToggles />
-          <span className="tile__viewers" title="Espectadores">
-            <Eye size={13} /> {live.viewers}
+      {/* em cima: quem é (esquerda) e os botões da live (direita) */}
+      <div className="tile__top">
+        <div className="tile__label">
+          {m.id === hostId && <Crown size={13} className="gold" />}
+          <span className="tile__name">
+            {m.name}
+            {isMe && ' (você)'}
           </span>
-          {!isMe && watching && <LiveVolume member={m} />}
+          {spec.kind === 'live' && <span className="live-badge">AO VIVO</span>}
+          {live && (
+            <span className="tile__viewers" title="Espectadores">
+              <Eye size={13} /> {live.viewers}
+            </span>
+          )}
+          {spec.kind === 'cam' && muted && <MicOff size={14} />}
+        </div>
+
+        {live && (
+          <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          {clips && (
+            <IconButton label="Salvar clipe do último minuto" tipPos="bottom" onClick={() => void saveClip()}>
+              <Scissors size={16} />
+            </IconButton>
+          )}
           {isMe && (
             <IconButton label="Opções da live" tipPos="bottom" onClick={() => setApp({ modal: { kind: 'live' } })}>
               <Settings2 size={16} />
@@ -527,18 +560,11 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
             </IconButton>
           )}
           {showVideo && !isMe && (
-            <IconButton label="Reconectar a live (se travou)" tipPos="bottom" onClick={() => reconnectLive(m.id)}>
-              <RefreshCw size={16} />
-            </IconButton>
-          )}
-          {showVideo && !isMe && (
             <IconButton label="Picture-in-picture" tipPos="bottom" onClick={pip}>
               <PictureInPicture2 size={16} />
             </IconButton>
           )}
-          <IconButton label="Tela cheia" tipPos="bottom" onClick={fullscreen}>
-            <Maximize size={16} />
-          </IconButton>
+          {fullscreenButton}
           {isMe ? (
             <IconButton label="Encerrar live" tipPos="bottom" className="is-danger" onClick={stopLive}>
               <Square size={15} />
@@ -550,18 +576,24 @@ function Tile({ spec, big }: { spec: TileSpec; big?: boolean }) {
               </IconButton>
             )
           )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {spec.kind === 'cam' && (
-        <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        {spec.kind === 'cam' && (
+          <div className="tile__tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            {fullscreenButton}
+            <IconButton label="Fechar a câmera (voltar para a órbita)" tipPos="bottom" onClick={() => showCamera(null)}>
+              <X size={16} />
+            </IconButton>
+          </div>
+        )}
+      </div>
+
+      {/* embaixo, à esquerda: o meu microfone e fone, e o volume da live */}
+      {(live || spec.kind === 'cam') && (
+        <div className="tile__self" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
           <QuickToggles />
-          <IconButton label="Tela cheia" tipPos="bottom" onClick={fullscreen}>
-            <Maximize size={16} />
-          </IconButton>
-          <IconButton label="Fechar a câmera (voltar para a órbita)" tipPos="bottom" onClick={() => showCamera(null)}>
-            <X size={16} />
-          </IconButton>
+          {live && !isMe && watching && <LiveVolume member={m} />}
         </div>
       )}
 
@@ -597,21 +629,87 @@ function LiveVolume({ member }: { member: Member }) {
   return (
     <div className="live-volume">
       <button type="button" className="icon-btn" aria-label={value === 0 ? 'Ativar o som da live' : 'Silenciar a live'} onClick={() => toggleLiveMute(member.id)}>
-        {value === 0 ? <VolumeX size={16} /> : value < 50 ? <Volume1 size={16} /> : <Volume2 size={16} />}
+        {value === 0 ? <VolumeX size={16} /> : value < MAX_VOLUME / 2 ? <Volume1 size={16} /> : <Volume2 size={16} />}
       </button>
       <input
         type="range"
         min={0}
         max={MAX_VOLUME}
-        step={5}
+        step={VOLUME_STEP}
         value={value}
         aria-label="Volume da live"
         style={{ '--fill': `${(value / MAX_VOLUME) * 100}%` } as CSSProperties}
         onChange={(e) => setLiveVolume(member.id, Number(e.target.value))}
       />
-      <span className="live-volume__value">{value}%</span>
+      <span className="live-volume__value">{volumeLabel(value)}</span>
     </div>
   );
+}
+
+/** Quanto tempo o mouse parado esconde os botões da live (no toque, um pouco mais). */
+const IDLE_MS = 2_000;
+const IDLE_TOUCH_MS = 3_000;
+/** Com o mouse em cima de algum destes, os botões não somem. */
+const HOLD = '.tile__tools:hover, .tile__self:hover, .tile__label:hover, .fx-bar:hover';
+
+/** Nos testes (só em desenvolvimento), os botões podem ficar sempre à mostra. */
+function alwaysAwake(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    return localStorage.getItem('orbita.idle') === 'off';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Os botões e as informações da live aparecem quando o mouse se mexe em cima dela e somem
+ * depois de uns segundos parado (ou quando o mouse sai). No toque, um toque mostra.
+ */
+function useAwake(ref: RefObject<HTMLDivElement | null>) {
+  const [awake, setAwake] = useState(alwaysAwake);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let timer = 0;
+    const sleep = () => {
+      if (alwaysAwake()) return;
+      if (el.querySelector(HOLD)) timer = window.setTimeout(sleep, IDLE_MS);
+      else setAwake(false);
+    };
+    const wake = (e: PointerEvent) => {
+      setAwake(true);
+      clearTimeout(timer);
+      timer = window.setTimeout(sleep, e.pointerType === 'touch' ? IDLE_TOUCH_MS : IDLE_MS);
+    };
+    const leave = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' || alwaysAwake()) return;
+      clearTimeout(timer);
+      setAwake(false);
+    };
+    el.addEventListener('pointermove', wake, true);
+    el.addEventListener('pointerdown', wake, true);
+    el.addEventListener('pointerleave', leave);
+    return () => {
+      clearTimeout(timer);
+      el.removeEventListener('pointermove', wake, true);
+      el.removeEventListener('pointerdown', wake, true);
+      el.removeEventListener('pointerleave', leave);
+    };
+  }, [ref]);
+  return awake;
+}
+
+/** Este elemento está em tela cheia? (o botão vira "sair da tela cheia") */
+function useFullscreen(ref: RefObject<HTMLDivElement | null>) {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const sync = () => setFull(!!ref.current && document.fullscreenElement === ref.current);
+    sync();
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, [ref]);
+  return full;
 }
 
 /**
@@ -638,7 +736,6 @@ function QuickToggles() {
       <IconButton label={deafened ? 'Ativar áudio' : 'Ensurdecer'} tipPos="bottom" className={cx('tile__toggle', deafened && 'is-off')} onClick={toggleDeafen}>
         {deafened ? <HeadphoneOff size={16} /> : <Headphones size={16} />}
       </IconButton>
-      <span className="tile__tools-sep" aria-hidden="true" />
     </>
   );
 }

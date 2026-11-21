@@ -291,28 +291,92 @@
   color: var(--danger);
 }
 
-.tile__tools {
+/* em cima: quem é (esquerda) e os botões da live (direita) */
+.tile__top {
   position: absolute;
   z-index: 7;
   top: 8px;
+  left: 8px;
   right: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.tile__top .tile__label {
+  position: static;
+  max-width: none;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.tile__top .tile__label .tile__viewers {
+  padding: 0 0 0 4px;
+  background: none;
+  color: var(--text-2);
+}
+
+/* embaixo, à esquerda: o meu microfone e fone, e o volume da live */
+.tile__self {
+  position: absolute;
+  z-index: 7;
+  left: 8px;
+  bottom: 8px;
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.tile__self:empty {
+  display: none;
+}
+
+.tile__tools {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* os botões aparecem com o mouse se mexendo em cima da live e somem com ele parado */
+.tile__tools,
+.tile__self {
   opacity: 0;
-  transition: opacity 0.15s;
+  pointer-events: none;
+  transition: opacity 0.2s;
 }
 
-.tile:hover .tile__tools,
-.tile:focus-within .tile__tools,
-.tile--big .tile__tools {
+.tile.is-awake .tile__tools,
+.tile.is-awake .tile__self,
+.tile:has(:focus-visible) .tile__tools,
+.tile:has(:focus-visible) .tile__self {
   opacity: 1;
+  pointer-events: auto;
 }
 
-@media (hover: none) {
-  .tile__tools {
-    opacity: 1;
-  }
+/* na live grande, o nome e o AO VIVO somem junto (nas pequenas, ficam) */
+.tile--big .tile__top .tile__label {
+  transition: opacity 0.2s;
+}
+
+.tile--big:not(.is-awake):not(:has(:focus-visible)) .tile__top .tile__label {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* tela cheia parada: o cursor some também (menos usando laser ou lápis) */
+.tile.is-full:not(.is-awake):not(.has-tool),
+.tile.is-full:not(.is-awake):not(.has-tool) * {
+  cursor: none !important;
+}
+
+.tile.is-full {
+  border-radius: 0;
+  border: 0;
+  background: #000;
 }
 
 .tile__tools .icon-btn {
@@ -532,6 +596,10 @@
   cursor: default;
 }
 
+.tile--big {
+  container-type: inline-size;
+}
+
 .orbit-strip {
   position: relative;
   flex: none;
@@ -540,30 +608,24 @@
   background: radial-gradient(60% 90% at 50% 50%, rgba(99, 102, 241, 0.12), transparent 75%);
 }
 
-.orbit-strip__hide {
-  position: absolute;
-  z-index: 6;
-  top: 4px;
-  right: 4px;
-}
-
+/* planetas minimizados: só uma setinha embaixo da live */
 .orbit-strip__show {
   flex: none;
   align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 16px;
+  margin-top: -2px;
   border-radius: 999px;
   border: 1px solid var(--line-2);
   background: rgba(5, 6, 15, 0.72);
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--text-2);
+  color: var(--text-3);
 }
 
 .orbit-strip__show:hover {
   color: var(--text);
+  border-color: var(--accent);
 }
 
 .orbit--compact .orbit__center-btn {
@@ -1118,14 +1180,19 @@
   background: var(--line-2);
 }
 
-/* minimizar a faixa de planetas embaixo da live */
-.orbit3d__tool.orbit-min {
-  border-color: rgba(139, 92, 246, 0.5);
-  color: var(--text);
+/* minimizar a faixa de planetas embaixo da live: só uma setinha */
+.orbit-min {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: rgba(5, 6, 15, 0.72);
+  color: var(--text-3);
 }
 
-/* tela cheia da live junto com a faixa de planetas */
-.stage-featured:fullscreen {
-  padding: 8px;
-  background: var(--bg-0);
+.orbit-min:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }

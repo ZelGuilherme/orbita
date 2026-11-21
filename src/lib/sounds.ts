@@ -21,7 +21,7 @@ function play(notes: Note[], type: OscillatorType = 'sine', volume = 0.05) {
       osc.type = type;
       osc.frequency.value = frequency;
       gain.gain.setValueAtTime(0, t0 + start);
-      gain.gain.linearRampToValueAtTime(volume, t0 + start + 0.012);
+      gain.gain.linearRampToValueAtTime(volume * 2, t0 + start + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + duration);
       osc.connect(gain).connect(ctx.destination);
       osc.start(t0 + start);

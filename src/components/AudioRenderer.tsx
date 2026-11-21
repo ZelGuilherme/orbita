@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Volume2 } from 'lucide-react';
 import { baseId } from '../lib/hub';
-import { BoostedAudio, setPlaybackSink } from '../lib/playback';
+import { BoostedAudio, LOUDNESS, setPlaybackSink } from '../lib/playback';
 import type { Member } from '../lib/protocol';
 import { setApp, useApp } from '../store';
 
@@ -22,6 +22,9 @@ export function AudioRenderer() {
   const members = useApp((s) => s.room?.members ?? EMPTY_MEMBERS);
   const sinkId = useApp((s) => s.settings.audioOutputId);
   const blocked = useApp((s) => s.audioBlocked);
+  // transmitindo com o som do computador, o som amplificado (Web Audio) não sai por completo da
+  // captura e quem assiste ouviria as vozes: nesse caso, volta ao volume original
+  const loud = useApp((s) => (s.live?.audio ? 1 : LOUDNESS));
   useEffect(() => setPlaybackSink(sinkId), [sinkId]);
 
   return (
@@ -32,7 +35,7 @@ export function AudioRenderer() {
           <RemoteAudio
             key={`v-${id}-${stream.id}`}
             stream={stream}
-            volume={(volumes[baseId(id)] ?? 100) / 100}
+            volume={((volumes[baseId(id)] ?? 100) / 100) * loud}
             muted={deafened || !!localMutes[id] || !!member?.serverMuted}
             sinkId={sinkId}
           />
@@ -43,7 +46,7 @@ export function AudioRenderer() {
           <RemoteAudio
             key={`l-${id}-${stream.id}`}
             stream={stream}
-            volume={(liveVolumes[baseId(id)] ?? 100) / 100}
+            volume={((liveVolumes[baseId(id)] ?? 100) / 100) * loud}
             muted={deafened || !!liveMutes[id]}
             sinkId={sinkId}
           />

@@ -52,6 +52,8 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
   await context.addInitScript(
     ([n, c, extra, lobby, network]) => {
       localStorage.setItem('orbita.lobbyId', lobby);
+      // os botões da live ficam sempre à mostra (o teste de sumir com o mouse parado desliga isso)
+      localStorage.setItem('orbita.idle', 'off');
       if (!sessionStorage.getItem('e2e.init')) {
         sessionStorage.setItem('e2e.init', '1');
         localStorage.setItem(
@@ -100,6 +102,8 @@ async function newUser(name, color, opened, viewport = { width: 1440, height: 90
 }
 
 const waitFor = (page, fn, arg, timeout = 30_000) => page.waitForFunction(fn, arg, { timeout, polling: 250 });
+// os botões da live só aparecem com o mouse se mexendo: cada "hover" vai para um ponto um pouco diferente
+const jitter = () => ({ position: { x: 30 + Math.round(Math.random() * 160), y: 70 + Math.round(Math.random() * 90) } });
 const shot = (page, name) => page.screenshot({ path: join(SHOTS, `${name}.png`) });
 const membersOf = (page) =>
   page.evaluate(() => {
@@ -459,9 +463,28 @@ async function chamadaCompleta(opened) {
   await a.page.locator('.orbit-strip__show').click();
   await waitFor(a.page, () => !!document.querySelector('.orbit-strip .orbit, .orbit-strip .orbit3d'));
   log('  live em destaque com a faixa de planetas (esconder e mostrar ok)');
+  // tela cheia: só a live (sem planetas) e o botão vira "sair da tela cheia"
+  const featuredLive = a.page.locator('.stage-featured .tile--live');
+  if (await a.page.getByRole('button', { name: /Reconectar/ }).count()) throw new Error('o botão de reconectar a live ainda aparece');
+  await featuredLive.hover(jitter());
+  await featuredLive.getByRole('button', { name: 'Tela cheia', exact: true }).click();
+  await waitFor(a.page, () => document.fullscreenElement?.classList.contains('tile--live') && !document.fullscreenElement.querySelector('.orbit-strip, .orbit, .orbit3d'));
+  await featuredLive.hover({ position: { x: 40, y: 120 } });
+  await featuredLive.getByRole('button', { name: 'Sair da tela cheia' }).click();
+  await waitFor(a.page, () => !document.fullscreenElement);
+  log('  tela cheia só com a live, e o botão vira "sair da tela cheia"');
+  // os botões somem com o mouse parado e voltam quando ele se mexe
+  await a.page.evaluate(() => localStorage.removeItem('orbita.idle'));
+  await featuredLive.hover({ position: { x: 60, y: 140 } });
+  await waitFor(a.page, () => document.querySelector('.stage-featured .tile--live')?.classList.contains('is-awake'));
+  await waitFor(a.page, () => !document.querySelector('.stage-featured .tile--live')?.classList.contains('is-awake'), null, 6_000);
+  await featuredLive.hover({ position: { x: 90, y: 150 } });
+  await waitFor(a.page, () => document.querySelector('.stage-featured .tile--live')?.classList.contains('is-awake'));
+  await a.page.evaluate(() => localStorage.setItem('orbita.idle', 'off'));
+  log('  botões da live somem com o mouse parado e voltam ao mexer');
   // microfone e áudio direto na live (funcionam em tela cheia)
-  const liveTools = a.page.locator('.stage-featured .tile--live .tile__tools');
-  await a.page.locator('.stage-featured .tile--live').hover();
+  const liveTools = a.page.locator('.stage-featured .tile--live .tile__self');
+  await a.page.locator('.stage-featured .tile--live').hover(jitter());
   const micWas = await a.page.evaluate(() => window.__orbita.getApp().micOn);
   await liveTools.getByRole('button', { name: /microfone/ }).click();
   await waitFor(a.page, (w) => window.__orbita.getApp().micOn !== w, micWas);
@@ -473,22 +496,26 @@ async function chamadaCompleta(opened) {
   log('  microfone e áudio funcionam direto na live (sem sair da tela cheia)');
 
   // volume da live, separado do volume da voz
-  await a.page.locator('.tile--live').first().hover();
+  await a.page.locator('.tile--live').first().hover(jitter());
   await a.page.getByRole('button', { name: 'Silenciar a live' }).click();
   await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveMutes).some(Boolean));
   await a.page.getByRole('button', { name: 'Ativar o som da live' }).click();
-  await a.page.locator('.live-volume input[type=range]').fill('35');
-  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(35));
+  // o controle mostra de 0 a 100 (guarda 0 a 300) e tudo toca 2x mais alto
+  await a.page.locator('.live-volume input[type=range]').fill('36');
+  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(36));
   const liveAudio = await a.page.evaluate(() => [...document.querySelectorAll('audio')].map((el) => Math.round(el.volume * 100)));
-  if (!liveAudio.includes(35)) throw new Error(`volume da live não chegou no áudio: ${liveAudio}`);
-  log('  volume da live ok:', liveAudio.join(', '));
-  // acima de 100%: o <audio> fica mudo e o som sai pelo Web Audio, com ganho
-  await a.page.locator('.live-volume input[type=range]').fill('250');
-  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(250));
+  if (!liveAudio.includes(72)) throw new Error(`volume da live (2x) não chegou no áudio: ${liveAudio}`);
+  const shown = await a.page.locator('.live-volume__value').textContent();
+  if (shown?.trim() !== '12') throw new Error(`o volume deveria aparecer como 12 (de 100), apareceu ${shown}`);
+  log('  volume da live ok (mostra 12 de 100, toca 2x):', liveAudio.join(', '));
+  // acima do volume original: o <audio> fica mudo e o som sai pelo Web Audio, com ganho
+  await a.page.locator('.live-volume input[type=range]').fill('249');
+  await waitFor(a.page, () => Object.values(window.__orbita.getApp().liveVolumes).includes(249));
   await waitFor(a.page, () => [...document.querySelectorAll('audio')].some((el) => el.muted && el.srcObject?.getAudioTracks().length));
-  await a.page.locator('.live-volume input[type=range]').fill('100');
-  await waitFor(a.page, () => ![...document.querySelectorAll('audio')].some((el) => el.muted));
-  log('  volume da live até 300% ok');
+  await a.page.locator('.live-volume input[type=range]').fill('30');
+  await waitFor(a.page, () => [...document.querySelectorAll('audio')].some((el) => !el.muted && Math.round(el.volume * 100) === 60));
+  await a.page.locator('.live-volume input[type=range]').fill('99');
+  log('  volume da live até o máximo ok');
 
   // zoom na live (só para quem deu zoom); com o lápis, o traço cai embaixo do cursor mesmo com zoom
   const liveTile = a.page.locator('.stage-featured .tile--live');
@@ -497,7 +524,7 @@ async function chamadaCompleta(opened) {
   for (let i = 0; i < 6; i++) await a.page.mouse.wheel(0, -240);
   await waitFor(a.page, () => !!document.querySelector('.zoom-box.is-zoomed') && !!document.querySelector('.zoom-pill'));
   if (await b.page.evaluate(() => !!document.querySelector('.zoom-box.is-zoomed'))) throw new Error('o zoom da Ana apareceu para o Bruno');
-  await liveTile.hover();
+  await liveTile.hover(jitter());
   await a.page.getByRole('button', { name: /Lápis/ }).click();
   const q = { x: tb.x + tb.width * 0.55, y: tb.y + tb.height * 0.5 };
   await a.page.mouse.move(q.x, q.y);
@@ -537,7 +564,10 @@ async function chamadaCompleta(opened) {
     window.dispatchEvent(new StorageEvent('storage', { key: 'orbita.settings.v1', storageArea: localStorage }));
   });
   await new Promise((r) => setTimeout(r, 3_000));
-  const [clipFile] = await Promise.all([a.page.waitForEvent('download', { timeout: 30_000 }), a.page.getByRole('button', { name: 'Salvar clipe do último minuto' }).click()]);
+  // o clipe também fica na live (para usar em tela cheia): é desse que salvamos
+  const liveClip = a.page.locator('.stage-featured .tile--live .tile__tools').getByRole('button', { name: 'Salvar clipe do último minuto' });
+  await a.page.locator('.stage-featured .tile--live').hover(jitter());
+  const [clipFile] = await Promise.all([a.page.waitForEvent('download', { timeout: 30_000 }), liveClip.click()]);
   const clipSize = statSync(await clipFile.path()).size;
   if (clipSize < 5_000) throw new Error(`clipe vazio: ${clipSize} bytes`);
   await waitFor(c.page, () => document.querySelector('.messages')?.textContent?.includes('salvou um clipe'), null, 10_000);
@@ -628,12 +658,12 @@ async function chamadaCompleta(opened) {
   log('  borracha ok: o traço virou dois pedaços para todos, inclusive para quem chegou depois');
   await a.page.mouse.move(5, 5);
   await shot(b.page, 'live-lapis-streamer');
-  await a.page.locator('.tile--live').first().hover();
+  await a.page.locator('.tile--live').first().hover(jitter());
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Apagar tudo' }).click();
   for (const u of [a, b, c]) await waitFor(u.page, () => !document.querySelector('.tile--live .fx-strokes path'), null, 10_000);
   log('  apagar tudo ok para todo mundo');
   // a barra de ferramentas minimiza (e a ferramenta desliga) e volta com um clique
-  await a.page.locator('.tile--live').first().hover();
+  await a.page.locator('.tile--live').first().hover(jitter());
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Lápis' }).click();
   await a.page.locator('.fx-bar').getByRole('button', { name: 'Minimizar as ferramentas' }).click();
   await waitFor(a.page, () => !!document.querySelector('.fx-bar--min') && !document.querySelector('.fx-bar [aria-label="Lápis"]') && window.__orbita.getApp().tool === null);

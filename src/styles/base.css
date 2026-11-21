@@ -1020,3 +1020,13 @@ input[type='range'] {
     0 0 14px 3px rgba(52, 211, 153, 0.5);
   pointer-events: none;
 }
+
+/* janela sem foco ou escondida: as animações de CSS (planetas girando, brilhos) ficam paradas */
+html[data-activity='blurred'] *,
+html[data-activity='blurred'] *::before,
+html[data-activity='blurred'] *::after,
+html[data-activity='hidden'] *,
+html[data-activity='hidden'] *::before,
+html[data-activity='hidden'] *::after {
+  animation-play-state: paused !important;
+}

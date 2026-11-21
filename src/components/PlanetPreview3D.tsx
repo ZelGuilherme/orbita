@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { minFrameMs } from '../lib/activity';
 import type { PlanetStyle } from '../lib/planet';
 import { textureSeed } from '../lib/noise';
 import { PlanetObject } from '../three/planetMesh';
@@ -54,8 +55,8 @@ export default function PlanetPreview3D({ color, look, photo, seedId, size = 190
     world.current = state;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      // no máximo ~60 quadros por segundo
-      if (now - last < 1000 / 60 - 2) return;
+      // no máximo ~60 quadros por segundo (~20 com a janela sem foco)
+      if (now - last < minFrameMs(1000 / 60 - 2)) return;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       controls.update();

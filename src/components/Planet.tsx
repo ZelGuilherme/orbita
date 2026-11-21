@@ -101,6 +101,21 @@ function usePlanetThumb(spec: { color: string; look: PlanetStyle; seed: number; 
   return spec ? url : null;
 }
 
+/**
+ * A foto no planeta 2D (o disco mostra a metade da frente da volta): uma só vira um adesivo
+ * menor no meio; repetida 3x ou mais vira ladrilhos; esticada, espelhada e 2x cobrem o disco.
+ */
+function PhotoLayer({ photo, look }: { photo: string; look?: PlanetStyle }) {
+  const fit = look?.photoFit ?? 'repeat';
+  const n = look?.photoRepeat ?? 2;
+  if (fit === 'repeat' && n > 2) {
+    // metade da volta aparece: n/2 ladrilhos na largura do disco
+    const size = `${(100 / (n / 2)).toFixed(2)}%`;
+    return <span className="planet__photo is-tiled" style={{ backgroundImage: `url("${photo}")`, backgroundSize: `${size} ${size}` }} />;
+  }
+  return <img className={cx('planet__photo', fit === 'single' && 'is-single')} src={photo} alt="" draggable={false} />;
+}
+
 /** Avatar em forma de planeta: cores, textura, anéis, luas, brilho, enfeites e (se houver) foto ou câmera. */
 export function Planet({ name, color, size = 40, host, speaking, live, text, className, memberId, avatar, planet, video, mirror }: PlanetProps) {
   const storedPhoto = useApp((s) => (memberId ? s.avatars[memberId] : undefined));
@@ -155,7 +170,7 @@ export function Planet({ name, color, size = 40, host, speaking, live, text, cla
           <VideoEl stream={video} mirror={mirror} />
         ) : (
           <>
-            {photo ? <img className="planet__photo" src={photo} alt="" draggable={false} /> : <span className="planet__initial">{text ?? initials(name)}</span>}
+            {photo ? <PhotoLayer photo={photo} look={look} /> : <span className="planet__initial">{text ?? initials(name)}</span>}
             {/* a textura fica por cima da foto, e gira devagar */}
             {look && look.texture !== 'none' && (
               <span className={cx('planet__texture', photo && 'is-over-photo')} style={photo ? { opacity: 1 - photoMixOf(look) } : undefined}>

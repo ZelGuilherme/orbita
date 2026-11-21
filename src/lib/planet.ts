@@ -7,6 +7,18 @@ export type PlanetTexture = 'none' | 'stripes' | 'craters' | 'spots' | 'clouds' 
 export type Ornament = 'star' | 'comet' | 'satellite' | 'ship';
 /** 1 = pequeno/fino/devagar, 2 = normal, 3 = grande/grosso/rápido. */
 export type Level = 1 | 2 | 3;
+/**
+ * Como a foto envolve o planeta: uma vez só (adesivo na frente), esticada numa volta,
+ * espelhada (frente e verso, sem emenda) ou repetida em ladrilhos (2 a 10 na volta).
+ */
+export type PhotoFit = 'single' | 'stretch' | 'mirror' | 'repeat';
+export const PHOTO_FITS: Array<[PhotoFit, string]> = [
+  ['single', 'Uma só'],
+  ['stretch', 'Esticada'],
+  ['mirror', 'Espelhada'],
+  ['repeat', 'Repetida'],
+];
+export const PHOTO_REPEAT = { min: 2, max: 10 } as const;
 
 /** As partes de cada textura que têm cor própria. */
 export type TexPart = 'stripes' | 'bands' | 'zones' | 'storm' | 'ocean' | 'land' | 'clouds' | 'rock' | 'lava' | 'ice' | 'cracks' | 'maria' | 'soil' | 'patches' | 'caps';
@@ -70,6 +82,10 @@ export interface PlanetStyle {
   texColors: Partial<Record<TexPart, string>>;
   /** Quanto a foto aparece no planeta, de 0 (só a textura) a 1 (só a foto). null = automático. */
   photoMix: number | null;
+  /** Como a foto envolve o planeta (padrão: repetida 2x, o jeito de sempre). */
+  photoFit: PhotoFit;
+  /** Quantas vezes a foto se repete na volta (só em "repetida"). */
+  photoRepeat: number;
 }
 
 /** Visibilidade da foto em uso (automático: lisa = só a foto; com textura, um pouco de cada). */
@@ -111,6 +127,8 @@ export const DEFAULT_PLANET: PlanetStyle = {
   ornaments: [],
   texColors: {},
   photoMix: null,
+  photoFit: 'repeat',
+  photoRepeat: 2,
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -130,6 +148,7 @@ export function sanitizePlanet(value: unknown): PlanetStyle | undefined {
     }
   }
   const mix = Number(p.photoMix);
+  const repeat = Math.round(Number(p.photoRepeat));
   return {
     texture: PLANET_TEXTURES.some((t) => t.id === p.texture) ? (p.texture as PlanetTexture) : 'none',
     color2: typeof p.color2 === 'string' && HEX.test(p.color2) ? p.color2.toLowerCase() : null,
@@ -147,5 +166,7 @@ export function sanitizePlanet(value: unknown): PlanetStyle | undefined {
     ornaments,
     texColors,
     photoMix: Number.isFinite(mix) && p.photoMix !== null ? Math.max(0, Math.min(1, Math.round(mix * 100) / 100)) : null,
+    photoFit: PHOTO_FITS.some(([id]) => id === p.photoFit) ? (p.photoFit as PhotoFit) : 'repeat',
+    photoRepeat: Number.isFinite(repeat) ? Math.max(PHOTO_REPEAT.min, Math.min(PHOTO_REPEAT.max, repeat)) : 2,
   };
 }

@@ -30,7 +30,10 @@ import {
 import { mentionsName } from './lib/markdown';
 import { randomOrbit, type OrbitStyle } from './lib/orbitPath';
 import { MediaEngine, type LiveOptions, type LiveSurface, type MediaEvents } from './lib/media';
-import { PeerOpenError } from './lib/peer';
+import { openPeer, PeerOpenError } from './lib/peer';
+import { peekRoom } from './lib/fixedPeek';
+import { activity } from './lib/activity';
+import type Peer from 'peerjs';
 import { clampVolume, resumePlayback } from './lib/playback';
 import type { AdminAction, Attachment, ChatMessage, FileAttachment, LiveFx, LiveInfo, Member, PenLook, Presence, RoomState } from './lib/protocol';
 import { JoinError, Session, type EndReason, type SessionHandlers } from './lib/session';
@@ -1399,6 +1402,58 @@ function syncLobby() {
   syncAnnounce();
 }
 
+// ───────────────────────── quem está nas órbitas fixas ─────────────────────────
+
+let peekPeer: Peer | null = null;
+let peekRunning = false;
+let peekTimer = 0;
+
+/** Na tela inicial, confere de tempos em tempos quem está em cada órbita fixa. */
+function watchFixedPeek() {
+  syncFixedPeek();
+  useApp.subscribe((s, prev) => {
+    if (s.phase !== prev.phase || s.fixedRooms !== prev.fixedRooms) syncFixedPeek();
+  });
+}
+
+function syncFixedPeek() {
+  const s = getApp();
+  const want = s.phase === 'landing' && s.fixedRooms.length > 0;
+  if (want && !peekRunning) {
+    peekRunning = true;
+    void runFixedPeek();
+  } else if (!want && peekRunning) {
+    peekRunning = false;
+    clearTimeout(peekTimer);
+    peekPeer?.destroy();
+    peekPeer = null;
+  }
+}
+
+async function runFixedPeek() {
+  if (!peekRunning) return;
+  if (!peekPeer || peekPeer.destroyed) {
+    try {
+      const peer = await openPeer();
+      if (!peekRunning) {
+        peer.destroy();
+        return;
+      }
+      peekPeer = peer;
+    } catch {
+      peekTimer = window.setTimeout(() => void runFixedPeek(), 30_000);
+      return;
+    }
+  }
+  for (const room of getApp().fixedRooms) {
+    const result = await peekRoom(peekPeer, room.code);
+    if (!peekRunning) return;
+    if (result) setApp((s) => ({ fixedPeek: { ...s.fixedPeek, [room.code]: result } }));
+  }
+  // com a aba escondida, confere bem menos
+  peekTimer = window.setTimeout(() => void runFixedPeek(), activity() === 'hidden' ? 90_000 : 20_000);
+}
+
 function startLobby() {
   if (lobbyWatching) return;
   lobbyWatching = true;
@@ -1780,6 +1835,7 @@ export function initController() {
   });
   startLobby();
   watchFixed();
+  watchFixedPeek();
   window.addEventListener('message', onExtensionMessage);
   // a extensão responde se estiver instalada
   window.postMessage({ source: 'orbita-app', action: 'ping' }, location.origin);

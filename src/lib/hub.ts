@@ -258,11 +258,31 @@ export class Hub {
       conn.close();
       return;
     }
+    if ((conn.metadata as { kind?: unknown } | undefined)?.kind === 'peek') {
+      this.peek(conn);
+      return;
+    }
     const timer = window.setTimeout(() => conn.close(), 20_000);
     conn.once('open', () => {
       clearTimeout(timer);
       if (this.stopped) conn.close();
       else this.addClient(new PeerWire(conn));
+    });
+  }
+
+  /** Espiada de quem tem a órbita fixa na lista: quantos estão aqui (sem entrar). */
+  private peek(conn: DataConnection) {
+    const timer = window.setTimeout(() => conn.close(), 8_000);
+    conn.once('open', () => {
+      try {
+        void conn.send(JSON.stringify({ t: 'peek', members: this.state.members.filter((m) => !m.reconnecting).length }));
+      } catch {
+        /* caiu */
+      }
+      window.setTimeout(() => {
+        clearTimeout(timer);
+        conn.close();
+      }, 1_000);
     });
   }
 

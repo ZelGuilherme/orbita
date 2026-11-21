@@ -141,26 +141,23 @@ export function Landing() {
             Chat, voz, vídeo e lives direto entre amigos. <strong>Sem servidor no meio:</strong> tudo viaja peer-to-peer.
             Quem abre a sala vira o centro da órbita.
           </p>
+          {/* as vantagens numa linha só (o detalhe aparece ao passar o mouse) */}
           <ul className="landing__features">
-            <li>
-              <Crown size={18} />
-              <b>Host no centro</b>
-              <span>Quem cria a sala comanda — e passa a coroa se sair.</span>
+            <li title="Quem cria a sala comanda — e passa a coroa se sair.">
+              <Crown size={16} />
+              Host no centro
             </li>
-            <li>
-              <Radio size={18} />
-              <b>Lives</b>
-              <span>Compartilhe a tela com áudio, até 1080p a 60 fps.</span>
+            <li title="Compartilhe a tela com áudio, até 1080p a 60 fps.">
+              <Radio size={16} />
+              Lives em 1080p
             </li>
-            <li>
-              <Shield size={18} />
-              <b>P2P e criptografado</b>
-              <span>WebRTC de ponta a ponta. Nada fica salvo em servidor.</span>
+            <li title="WebRTC de ponta a ponta. Nada fica salvo em servidor.">
+              <Shield size={16} />
+              P2P e criptografado
             </li>
-            <li>
-              <Sparkles size={18} />
-              <b>Sem cadastro</b>
-              <span>Escolha um nome, uma cor de planeta e pronto.</span>
+            <li title="Escolha um nome, uma cor de planeta e pronto.">
+              <Sparkles size={16} />
+              Sem cadastro
             </li>
           </ul>
         </section>
@@ -215,7 +212,7 @@ export function Landing() {
               <label className="check-row">
                 <input type="checkbox" checked={fixed} onChange={(e) => setFixed(e.target.checked)} />
                 <span>
-                  <b>Órbita fixa</b> · o mesmo link sempre; quem já entrou pode reabrir quando estiver vazia (histórico e configurações ficam guardados no navegador de cada um)
+                  <b>Órbita fixa</b> · o mesmo link sempre; quem já entrou pode reabrir quando estiver vazia
                 </span>
               </label>
             </>
@@ -273,8 +270,11 @@ export function Landing() {
             </a>
           </div>
         </form>
-        <FixedRoomsList />
-        <LobbyList />
+        {/* do lado do cartão: as órbitas fixas (com quem está dentro) e as órbitas abertas */}
+        <aside className="landing__side">
+          <FixedRoomsList />
+          <LobbyList />
+        </aside>
       </main>
     </div>
   );

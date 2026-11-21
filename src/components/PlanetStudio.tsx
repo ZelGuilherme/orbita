@@ -1,7 +1,19 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { CircleDot, Globe, Moon, RotateCcw, Rocket, Sparkles } from 'lucide-react';
 import { updateProfile } from '../controller';
-import { DEFAULT_PLANET, ORNAMENTS, PLANET_TEXTURES, TEXTURE_PARTS, photoMixOf, type Level, type Ornament, type PlanetStyle, type TexPart } from '../lib/planet';
+import {
+  DEFAULT_PLANET,
+  ORNAMENTS,
+  PHOTO_FITS,
+  PHOTO_REPEAT,
+  PLANET_TEXTURES,
+  TEXTURE_PARTS,
+  photoMixOf,
+  type Level,
+  type Ornament,
+  type PlanetStyle,
+  type TexPart,
+} from '../lib/planet';
 import { autoPartColors } from '../lib/texturePalette';
 import { hasWebGL } from '../lib/webgl';
 import { getApp, useApp } from '../store';
@@ -170,6 +182,24 @@ export function PlanetStudio() {
                       />
                     ))}
                   </div>
+                </Row>
+              )}
+              {profile.avatar && (
+                <Row label="Como a foto envolve o planeta">
+                  <Segmented label="Como a foto envolve o planeta" value={look.photoFit} options={PHOTO_FITS} onPick={(photoFit) => set({ photoFit })} />
+                </Row>
+              )}
+              {profile.avatar && look.photoFit === 'repeat' && (
+                <Row label={`Repetida ${look.photoRepeat}x na volta`}>
+                  <input
+                    type="range"
+                    min={PHOTO_REPEAT.min}
+                    max={PHOTO_REPEAT.max}
+                    step={1}
+                    value={look.photoRepeat}
+                    aria-label="Quantas vezes a foto se repete"
+                    onChange={(e) => set({ photoRepeat: Number(e.target.value) })}
+                  />
                 </Row>
               )}
               {profile.avatar && (

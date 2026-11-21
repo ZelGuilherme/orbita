@@ -89,6 +89,7 @@ export function KnockRequests() {
 export function FixedRoomsList() {
   const rooms = useApp((s) => s.fixedRooms);
   const me = useApp((s) => s.profile.id);
+  const peeks = useApp((s) => s.fixedPeek);
   if (!rooms.length) return null;
   return (
     <section className="lobby fixed-rooms" aria-label="Suas órbitas fixas">
@@ -99,30 +100,51 @@ export function FixedRoomsList() {
         <span className="lobby__status">o mesmo link sempre</span>
       </header>
       <ul className="lobby__list">
-        {rooms.map((room) => (
-          <li key={room.code} className="lobby-room">
-            <span className="fixed-rooms__icon" aria-hidden="true">
-              <Pin size={18} />
-            </span>
-            <div className="lobby-room__text">
-              <span className="lobby-room__name">
-                {room.locked && <Lock size={13} aria-label="Trancada" />}
-                {room.name}
+        {rooms.map((room) => {
+          const peek = peeks[room.code];
+          const busy = peek?.open === true;
+          return (
+            <li key={room.code} className="lobby-room" title={`Código ${room.code} · guardada em ${formatDay(room.savedAt)}`}>
+              <span className={cx('fixed-rooms__icon', busy && 'is-busy')} aria-hidden="true">
+                <Pin size={18} />
               </span>
-              <span className="lobby-room__meta">
-                {room.ownerId === me ? 'criada por você' : 'você já entrou'} · código {room.code} · {formatDay(room.savedAt)}
-              </span>
-            </div>
-            <button type="button" className="btn btn--sm" onClick={() => void reopenRoom(room.code)}>
-              <RotateCcw size={14} /> Abrir
-            </button>
-            <button type="button" className="icon-btn" aria-label={`Esquecer ${room.name}`} title="Esquecer (tira da lista deste navegador)" onClick={() => forgetRoom(room.code)}>
-              <Trash2 size={15} />
-            </button>
-          </li>
-        ))}
+              <div className="lobby-room__text">
+                <span className="lobby-room__name">
+                  {room.locked && <Lock size={13} aria-label="Trancada" />}
+                  {room.name}
+                </span>
+                <span className="lobby-room__meta">
+                  <span className={cx('fixed-rooms__who', busy && 'is-busy', !peek && 'is-checking')}>
+                    {!peek ? (
+                      'conferindo…'
+                    ) : busy ? (
+                      <>
+                        <Users size={12} /> {peek.members == null ? 'tem gente' : `${peek.members} ${peek.members === 1 ? 'pessoa' : 'pessoas'}`}
+                      </>
+                    ) : (
+                      'vazia'
+                    )}
+                  </span>
+                  · {room.ownerId === me ? 'criada por você' : 'você já entrou'}
+                </span>
+              </div>
+              <button type="button" className={cx('btn btn--sm', busy && 'btn--primary')} onClick={() => void reopenRoom(room.code)}>
+                {busy ? <DoorOpen size={14} /> : <RotateCcw size={14} />} {busy ? 'Entrar' : peek ? 'Reabrir' : 'Abrir'}
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Esquecer ${room.name}`}
+                title="Esquecer (tira da lista deste navegador)"
+                onClick={() => forgetRoom(room.code)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </li>
+          );
+        })}
       </ul>
-      <p className="lobby__hint">“Abrir” entra se alguém já estiver lá; se estiver vazia, você reabre a sala (com o histórico) e vira o host. Quem criou recebe a coroa de volta ao chegar.</p>
+      <p className="lobby__hint">Vazia? Quem reabre vira o host (com o histórico). Quem criou recebe a coroa de volta ao chegar.</p>
     </section>
   );
 }

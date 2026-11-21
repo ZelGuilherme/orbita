@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LinkQuality, LiveSurface } from './lib/media';
+import type { RoomPeek } from './lib/fixedPeek';
 import { listFixedRooms } from './lib/fixedRooms';
 import type { SavedRoom } from './lib/hub';
 import type { Knock, Listing } from './lib/lobby';
@@ -131,6 +132,8 @@ export interface AppState {
   extension: string | null;
   /** Órbitas fixas guardadas neste navegador. */
   fixedRooms: SavedRoom[];
+  /** Quem está em cada órbita fixa agora (código → espiada; ausente = conferindo). */
+  fixedPeek: Record<string, RoomPeek>;
   /** Meu pedido para entrar numa órbita da lista. */
   knocking: { listingId: string; roomName: string } | null;
   /** (host) Pedidos para entrar na minha órbita. */
@@ -212,6 +215,7 @@ export const useApp = create<AppState>()(() => ({
   lobbyOnline: false,
   extension: null,
   fixedRooms: listFixedRooms(),
+  fixedPeek: {},
   knocking: null,
   ...roomDefaults(),
 }));

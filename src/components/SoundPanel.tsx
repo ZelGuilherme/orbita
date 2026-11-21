@@ -10,17 +10,21 @@ import { cx } from './ui';
 export function VoiceEffectPicker() {
   const effect = useApp((s) => s.settings.voiceEffect);
   return (
-    <div className="fx-chips" role="radiogroup" aria-label="Efeito de voz">
+    <div className="fx-cards" role="radiogroup" aria-label="Efeito de voz">
       {VOICE_EFFECTS.map((e) => (
         <button
           key={e.id}
           type="button"
           role="radio"
           aria-checked={effect === e.id}
-          className={cx('chip', effect === e.id && 'is-on')}
+          aria-label={e.label}
+          className={cx('fx-card', effect === e.id && 'is-on')}
           onClick={() => updateSettings({ voiceEffect: e.id })}
         >
-          <span aria-hidden="true">{e.emoji}</span> {e.label}
+          <span className="fx-card__icon" aria-hidden="true">
+            {e.emoji}
+          </span>
+          <span className="fx-card__label">{e.label}</span>
         </button>
       ))}
     </div>
@@ -58,7 +62,7 @@ function SoundPanel() {
     <div className="sound-panel" role="dialog" aria-label="Efeitos de voz">
       <h4>Efeito na sua voz</h4>
       <VoiceEffectPicker />
-      <p className="sound-panel__hint">Só muda o que sai para a chamada. Para se ouvir, use “Testar microfone” em Configurações › Voz e vídeo.</p>
+      <p className="sound-panel__hint">Muda só o que os outros ouvem. Para se ouvir: Configurações › Voz e vídeo › Testar microfone.</p>
     </div>
   );
 }

@@ -431,7 +431,7 @@ async function chamadaCompleta(opened) {
   await a.page.getByRole('button', { name: 'Efeitos de voz' }).click();
   if (await a.page.locator('.sound-btn').count()) throw new Error('o soundboard ainda aparece');
   for (const effect of ['robot', 'deep', 'radio', 'none']) {
-    await a.page.locator('.sound-panel .chip', { hasText: { robot: 'Robô', deep: 'Voz grossa', radio: 'Rádio', none: 'Normal' }[effect] }).click();
+    await a.page.locator('.sound-panel .fx-card', { hasText: { robot: 'Robô', deep: 'Voz grossa', radio: 'Rádio', none: 'Normal' }[effect] }).click();
     await waitFor(a.page, (e) => window.__orbitaMedia?.voiceProc?.effectKind === e, effect, 10_000);
   }
   await a.page.keyboard.press('Escape');
@@ -974,13 +974,23 @@ async function orbitaFixa(opened) {
   await waitFor(b.page, (c) => window.__orbita.getApp().fixedRooms.some((r) => r.code === c), code);
   await b.page.locator('.fixed-rooms .lobby-room', { hasText: 'Fixa da Ana' }).waitFor();
   await a.page.waitForTimeout(2_500);
-  log('  sala vazia; a cópia ficou guardada com quem já tinha entrado');
+  // a lista de órbitas fixas confere quem está dentro: agora, ninguém
+  await waitFor(b.page, () => [...document.querySelectorAll('.fixed-rooms .lobby-room')].some((el) => el.textContent.includes('Fixa da Ana') && el.textContent.includes('vazia')), null, 30_000);
+  log('  sala vazia (a lista mostra "vazia"); a cópia ficou guardada com quem já tinha entrado');
 
   // o Bruno (que só tinha entrado) reabre: volta com o histórico e a mensagem fixada
-  await b.page.locator('.fixed-rooms .lobby-room', { hasText: 'Fixa da Ana' }).getByRole('button', { name: /Abrir/ }).click();
+  await b.page.locator('.fixed-rooms .lobby-room', { hasText: 'Fixa da Ana' }).getByRole('button', { name: /Abrir|Reabrir/ }).click();
   await waitFor(b.page, (c) => window.__orbita.getApp().phase === 'room' && window.__orbita.getApp().code === c && window.__orbita.getApp().isHost, code, 40_000);
   await waitFor(b.page, () => document.querySelector('.pinned-bar')?.textContent?.includes('mensagem que tem que voltar'), null, 10_000);
   log('  Bruno reabriu a órbita pelo mesmo código, com o histórico e a fixada');
+  // na tela inicial da Ana, a órbita fixa aparece com 1 pessoa dentro e o botão vira "Entrar"
+  await waitFor(
+    a.page,
+    () => [...document.querySelectorAll('.fixed-rooms .lobby-room')].some((el) => el.textContent.includes('Fixa da Ana') && el.textContent.includes('1 pessoa') && el.textContent.includes('Entrar')),
+    null,
+    45_000,
+  );
+  log('  a lista de órbitas fixas mostra quem está dentro (1 pessoa)');
 
   // a Ana (quem criou) chega pelo mesmo link: a coroa volta para ela
   await joinRoom(a, code);

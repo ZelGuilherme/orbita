@@ -207,8 +207,64 @@ function texture(source: HTMLCanvasElement, srgb = true): THREE.CanvasTexture {
 }
 
 /**
- * Monta as texturas de um planeta. Com foto, ela é embrulhada no planeta (duas vezes na volta,
- * para o rosto aparecer de qualquer lado), tão visível quanto a pessoa escolheu.
+ * Desenha a foto no mapa do planeta (W = 2H: a volta inteira na largura), do jeito escolhido:
+ *  - uma só: um adesivo redondo de bordas suaves na frente; o resto é a textura;
+ *  - esticada: uma cópia ocupando a volta inteira;
+ *  - espelhada: frente normal e verso espelhado (as emendas somem);
+ *  - repetida: N ladrilhos na volta (e linhas suficientes para ficarem quase quadrados).
+ */
+function drawPhoto(g: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number, look: PlanetStyle) {
+  const side = Math.min(img.width, img.height);
+  const sx = (img.width - side) / 2;
+  const sy = (img.height - side) / 2;
+  const put = (x: number, y: number, dw: number, dh: number, flip = false) => {
+    if (!flip) {
+      g.drawImage(img, sx, sy, side, side, x, y, dw, dh);
+      return;
+    }
+    g.save();
+    g.translate(x + dw, y);
+    g.scale(-1, 1);
+    g.drawImage(img, sx, sy, side, side, 0, 0, dw, dh);
+    g.restore();
+  };
+  switch (look.photoFit) {
+    case 'single': {
+      // adesivo: a foto num círculo com a borda esfumada, centrado na frente do planeta
+      const size = Math.round(h * 0.62);
+      const sticker = document.createElement('canvas');
+      sticker.width = sticker.height = size;
+      const s = sticker.getContext('2d')!;
+      s.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      const mask = s.createRadialGradient(size / 2, size / 2, size * 0.36, size / 2, size / 2, size / 2);
+      mask.addColorStop(0, 'rgba(0,0,0,1)');
+      mask.addColorStop(1, 'rgba(0,0,0,0)');
+      s.globalCompositeOperation = 'destination-in';
+      s.fillStyle = mask;
+      s.fillRect(0, 0, size, size);
+      g.drawImage(sticker, w * 0.25 - size / 2, (h - size) / 2);
+      return;
+    }
+    case 'stretch':
+      put(0, 0, w, h);
+      return;
+    case 'mirror':
+      put(0, 0, w / 2, h);
+      put(w / 2, 0, w / 2, h, true);
+      return;
+    default: {
+      const n = Math.max(2, Math.min(10, Math.round(look.photoRepeat || 2)));
+      const tileW = w / n;
+      const rows = Math.max(1, Math.round(h / tileW));
+      const tileH = h / rows;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < n; c++) put(c * tileW, r * tileH, tileW, tileH);
+    }
+  }
+}
+
+/**
+ * Monta as texturas de um planeta. Com foto, ela vai por cima da superfície (do jeito
+ * escolhido), tão visível quanto a pessoa escolheu.
  */
 export async function planetTextures(look: PlanetStyle, color: string, seed: number, photo: string | undefined, width = 768, priority: Priority = 0): Promise<PlanetTextures> {
   const maps = await requestMaps({ kind: look.texture, color, color2: look.color2, parts: partColors(look, color), seed, width }, priority);
@@ -222,11 +278,8 @@ export async function planetTextures(look: PlanetStyle, color: string, seed: num
     mapCanvas.height = maps.height;
     const g = mapCanvas.getContext('2d')!;
     g.drawImage(maps.color, 0, 0);
-    const side = Math.min(img.width, img.height);
-    const sx = (img.width - side) / 2;
-    const sy = (img.height - side) / 2;
     g.globalAlpha = mix;
-    for (let k = 0; k < 2; k++) g.drawImage(img, sx, sy, side, side, k * maps.height, 0, maps.height, maps.height);
+    drawPhoto(g, img, maps.width, maps.height, look);
     g.globalAlpha = 1;
   }
   const map = texture(mapCanvas);

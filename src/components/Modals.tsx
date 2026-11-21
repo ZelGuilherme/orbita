@@ -62,7 +62,6 @@ import { errorMessage, inviteLink, sanitizeName } from '../lib/util';
 import { VoiceProcessor, voiceOptions } from '../lib/voice';
 import { getApp, setApp, toast, useApp, type Modal as ModalState, type SettingsTab } from '../store';
 import { canFloat, openFloating } from './Floating';
-import { AvatarButtons } from './Landing';
 import { OrbitLogo } from './OrbitLogo';
 import { Planet } from './Planet';
 import { PlanetStudio } from './PlanetStudio';
@@ -205,7 +204,6 @@ function ProfileTab({ goTo }: { goTo: (tab: SettingsTab) => void }) {
       <div className="profile-preview">
         <div className="avatar-edit">
           <Planet name={name || '?'} color={profile.color} avatar={profile.avatar} planet={profile.planet} size={92} host={isHost} />
-          <AvatarButtons />
         </div>
         <label className="field">
           <span>Seu nome</span>

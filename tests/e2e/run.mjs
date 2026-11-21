@@ -293,6 +293,8 @@ async function chamadaCompleta(opened) {
   // foto de perfil: o Bruno escolhe uma foto e a Ana vê na lista de pessoas
   const png = await b.page.screenshot({ clip: { x: 0, y: 0, width: 64, height: 64 } });
   await b.page.getByRole('button', { name: 'Configurações' }).last().click();
+  // a foto fica na personalização do planeta
+  await b.page.locator('.settings__nav button', { hasText: 'Planeta' }).click();
   await b.page.locator('.avatar-buttons input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: png });
   await b.page.locator('.settings__close').click();
   await waitFor(

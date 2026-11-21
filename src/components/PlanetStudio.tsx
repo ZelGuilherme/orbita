@@ -5,7 +5,7 @@ import { DEFAULT_PLANET, ORNAMENTS, PLANET_TEXTURES, TEXTURE_PARTS, photoMixOf, 
 import { autoPartColors } from '../lib/texturePalette';
 import { hasWebGL } from '../lib/webgl';
 import { getApp, useApp } from '../store';
-import { ColorInput, Swatches } from './Landing';
+import { AvatarButtons, ColorInput, Swatches } from './Landing';
 import { Planet } from './Planet';
 import { cx, Switch } from './ui';
 
@@ -99,6 +99,8 @@ export function PlanetStudio() {
           </div>
         )}
         <span className="studio__caption">Assim seu planeta aparece na órbita. Arraste para virar.</span>
+        {/* a foto vai embrulhada no planeta: adicionar, trocar e remover ficam aqui */}
+        <AvatarButtons />
       </div>
 
       <div className="studio__panel">

@@ -262,8 +262,13 @@ export class PlanetObject {
 
     // anéis: o de dentro e, com dois, um mais largo por fora
     if (look.rings > 0) {
+      // o anel fica deitado (x) dentro de um grupo que inclina para o lado (z). Na mesma rotação,
+      // o z seria aplicado antes e só giraria o anel no próprio plano (sem mudar nada).
+      const tilt = new THREE.Group();
+      tilt.rotation.z = (-look.ringTilt * Math.PI) / 180;
       const ringGroup = new THREE.Group();
-      ringGroup.rotation.set(-Math.PI / 2 + 0.16, 0, (look.ringTilt * Math.PI) / 180);
+      ringGroup.rotation.x = -Math.PI / 2 + 0.16;
+      tilt.add(ringGroup);
       const width = RING_WIDTH[look.ringWidth] * r;
       const specs: Array<[number, number]> = [[r * 1.3, r * 1.3 + width]];
       if (look.rings > 1) specs.push([r * 1.38 + width, r * 1.38 + width * 1.75]);
@@ -272,7 +277,7 @@ export class PlanetObject {
         ring.renderOrder = 2;
         ringGroup.add(ring);
       });
-      this.group.add(ringGroup);
+      this.group.add(tilt);
     }
 
     // luas: cada uma numa órbita inclinada diferente
